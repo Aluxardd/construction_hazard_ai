@@ -4,12 +4,11 @@ import { ConfigPanel } from './components/ConfigPanel';
 import { ImageUploader } from './components/ImageUploader';
 import { KPICard } from './components/KPICard';
 import { DetectionResults } from './components/DetectionResults';
-import { RiskMatrix } from './components/RiskMatrix';
 import { HazardRegister } from './components/HazardRegister';
 import { ReportGenerator } from './components/ReportGenerator';
 import './App.css';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '/api';
 
 function App() {
   const [config, setConfig] = useState({
@@ -32,6 +31,7 @@ function App() {
   const [siteAssessment, setSiteAssessment] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [hazardFilterMode, setHazardFilterMode] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Load system config on mount
   useEffect(() => {
@@ -44,6 +44,7 @@ function App() {
           ...prev,
           is_custom_model: data.is_custom_model,
           class_names: data.class_names || [],
+          detector_status: data.detector_status,
         }));
       } catch (error) {
         console.error('Failed to load system config:', error);
@@ -57,6 +58,7 @@ function App() {
     setUseSample(isSample);
     setResults(null);
     setSiteAssessment(null);
+    setErrorMessage('');
   };
 
   const handleProcessImages = async () => {
@@ -66,116 +68,55 @@ function App() {
     }
 
     setIsProcessing(true);
+    setErrorMessage('');
+    setResults(null);
+    setSiteAssessment(null);
     try {
-      // Handle sample image mode
-      if (useSample && !images.length) {
-        // Create a sample image
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        
-        // Draw a simple construction site-like image
-        ctx.fillStyle = '#87CEEB';
-        ctx.fillRect(0, 0, 640, 480);
-        ctx.fillStyle = '#DAA520';
-        ctx.fillRect(0, 350, 640, 130);
-        
-        // Add some shapes to represent construction elements
-        ctx.fillStyle = '#FF6347';
-        ctx.fillRect(100, 200, 80, 150);
-        ctx.fillStyle = '#4169E1';
-        ctx.fillRect(300, 250, 100, 100);
-        
-        canvas.toBlob((blob) => {
-          const file = new File([blob], 'sample_site.png', { type: 'image/png' });
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('conf_threshold', config.conf_threshold || 0.5);
-          formData.append('iou_threshold', config.iou_threshold || 0.45);
-          formData.append('show_compliant', config.show_compliant || true);
-
-          fetch(`${API_BASE}/detect`, {
-            method: 'POST',
-            body: formData,
-          })
-            .then((res) => {
-              if (!res.ok) throw new Error('Detection failed');
-              return res.json();
-            })
-            .then((data) => {
-              setResults([
-                {
-                  filename: data.filename,
-                  annotated_image: data.annotated_image,
-                  evaluation: data.evaluation,
-                },
-              ]);
-              setSiteAssessment(data.evaluation);
-              setActiveTab(1);
-            })
-            .catch((error) => alert(`Error: ${error.message}`))
-            .finally(() => setIsProcessing(false));
-        });
-        return;
+      let selectedImages = images;
+      if (useSample) {
+        const sample = await fetch(`${API_BASE}/sample-image`);
+        if (!sample.ok) throw new Error('Could not load the sample image.');
+        selectedImages = [new File([await sample.blob()], 'sample_site.jpg', { type: 'image/jpeg' })];
       }
-
-      // Normal file upload mode
       const formData = new FormData();
-
-      if (images.length > 0) {
-        if (images.length > 1) {
-          images.forEach((img) => formData.append('files', img));
+      if (selectedImages.length > 0) {
+        if (selectedImages.length > 1) {
+          selectedImages.forEach((img) => formData.append('files', img));
         } else {
-          formData.append('file', images[0]);
+          formData.append('file', selectedImages[0]);
         }
       }
 
-      formData.append('conf_threshold', config.conf_threshold || 0.5);
-      formData.append('iou_threshold', config.iou_threshold || 0.45);
-      formData.append('show_compliant', config.show_compliant || true);
+      formData.append('conf_threshold', config.conf_threshold);
+      formData.append('iou_threshold', config.iou_threshold);
+      formData.append('show_compliant', config.show_compliant);
 
-      const endpoint = images.length > 1 ? '/detect-batch' : '/detect';
+      const endpoint = selectedImages.length > 1 ? '/detect-batch' : '/detect';
       const response = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Detection failed: ${errorText || response.statusText}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(typeof errorData?.detail === 'string' ? errorData.detail : `Detection failed (${response.status}).`);
       }
 
       const data = await response.json();
-      if (images.length > 1) {
+      if (selectedImages.length > 1) {
         setResults(data.results);
-        setSiteAssessment(data.aggregate_assessment);
+        setSiteAssessment(data.site_assessment);
       } else {
-        setResults([
-          {
-            filename: data.filename,
-            annotated_image: data.annotated_image,
-            evaluation: data.evaluation,
-          },
-        ]);
+        setResults([data]);
         setSiteAssessment(data.evaluation);
       }
 
-      setActiveTab(1); // Switch to results tab
+      setActiveTab(0);
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      setErrorMessage(error.message);
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const getOverallColor = (siteAssessment) => {
-    if (!siteAssessment) return '#1E293B';
-    const tierCounts = siteAssessment.tier_counts || {};
-    if (tierCounts.Critical > 0) return '#dc3545';
-    if (tierCounts.High > 0) return '#fd7e14';
-    if (tierCounts.Medium > 0) return '#ffc107';
-    return '#28a745';
   };
 
   return (
@@ -183,7 +124,7 @@ function App() {
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerContent}>
-          <h1 style={styles.mainTitle}>🏗️ Construction Safety AI: Hazard Detection & 5×5 Risk Matrix</h1>
+          <h1 style={styles.mainTitle}>🏗️ Construction Safety AI: PPE Detection</h1>
           <p style={styles.subtitle}>
             BSc (Hons) Computer Science Final Year Project • Serghei Coceban • University of Bolton & Regent College London
           </p>
@@ -224,42 +165,17 @@ function App() {
               'Analyze Images'
             )}
           </button>
+          {errorMessage && <p role="alert" style={{ color: '#b91c1c' }}>{errorMessage}</p>}
 
           {/* Results Section */}
           {siteAssessment && (
             <>
               {/* KPI Dashboard */}
               <div style={styles.kpiGrid}>
-                <KPICard
-                  title="Overall Status"
-                  value={siteAssessment.overall_site_risk}
-                  color={getOverallColor(siteAssessment)}
-                />
-                <KPICard
-                  title="Hazards / Violations"
-                  value={siteAssessment.total_hazards}
-                  color={siteAssessment.total_hazards > 0 ? '#dc3545' : '#28a745'}
-                />
-                <KPICard
-                  title="Compliant PPE"
-                  value={siteAssessment.compliant_count}
-                  color="#28a745"
-                />
-                <KPICard
-                  title="Compliance Rate"
-                  value={`${siteAssessment.compliance_rate}%`}
-                  color={siteAssessment.compliance_rate >= 80 ? '#28a745' : '#fd7e14'}
-                />
-                <KPICard
-                  title="Critical (15-25)"
-                  value={siteAssessment.tier_counts?.Critical || 0}
-                  color="#dc3545"
-                />
-                <KPICard
-                  title="High (10-14)"
-                  value={siteAssessment.tier_counts?.High || 0}
-                  color="#fd7e14"
-                />
+                <KPICard title="Detections" value={siteAssessment.total_detections} color="#0066cc" />
+                <KPICard title="PPE detections" value={siteAssessment.total_ppe_items} color="#28a745" />
+                <KPICard title="People detected" value={siteAssessment.total_workers} color="#0066cc" />
+                <KPICard title="Compliance" value="Not assessed" color="#64748b" />
               </div>
 
               {/* Tabs */}
@@ -286,7 +202,7 @@ function App() {
                 {/* Tab Content */}
                 <div style={styles.tabContent}>
                   {activeTab === 0 && <DetectionResults results={results} />}
-                  {activeTab === 1 && <RiskMatrix assessment={siteAssessment} />}
+                  {activeTab === 1 && <p>Risk scoring is not available from object detections alone. Review images on site.</p>}
                   {activeTab === 2 && (
                     <>
                       <div style={styles.filterOptions}>
@@ -296,7 +212,7 @@ function App() {
                             checked={hazardFilterMode === 0}
                             onChange={() => setHazardFilterMode(0)}
                           />
-                          <span>Hazards Only (Violations)</span>
+                          <span>Model no-PPE flags only</span>
                         </label>
                         <label style={styles.radioLabel}>
                           <input
@@ -304,7 +220,7 @@ function App() {
                             checked={hazardFilterMode === 1}
                             onChange={() => setHazardFilterMode(1)}
                           />
-                          <span>All Detections (Including Compliant PPE)</span>
+                          <span>All detections</span>
                         </label>
                       </div>
                       <HazardRegister

@@ -7,6 +7,7 @@ export const ImageUploader = ({ onImagesSelected, isProcessing }) => {
 
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files || []);
+    e.target.value = '';
     setFiles(selectedFiles);
     setUseSample(false);
     onImagesSelected(selectedFiles, false);
@@ -17,6 +18,8 @@ export const ImageUploader = ({ onImagesSelected, isProcessing }) => {
     if (!useSample) {
       setFiles([]);
       onImagesSelected([], true);
+    } else {
+      onImagesSelected([], false);
     }
   };
 

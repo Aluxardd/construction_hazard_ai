@@ -2,7 +2,7 @@
 Configuration settings for PPE (Personal Protective Equipment) Detection & Compliance.
 Focuses exclusively on identifying safety equipment worn by construction workers.
 Aligned with OSHA 1926 regulations and international safety standards.
-Model classes: ['helmet', 'gloves', 'vest', 'boots', 'goggles', 'person']
+Model classes are read from the loaded checkpoint.
 """
 
 from pathlib import Path
@@ -23,21 +23,18 @@ PPE_ITEMS = ["helmet", "gloves", "vest", "boots", "goggles"]
 TOTAL_PPE_ITEMS = len(PPE_ITEMS)
 
 def calculate_ppe_compliance(detections: list) -> dict:
-    """Calculate PPE compliance score based on detected items."""
-    detected_ppe = set()
-    for detection in detections:
-        label = detection.get("label", "").lower()
-        for ppe in PPE_ITEMS:
-            if ppe in label:
-                detected_ppe.add(ppe)
-    
-    compliance_rate = (len(detected_ppe) / TOTAL_PPE_ITEMS) * 100
-    
+    """Summarize positive detections without inferring compliance from absence."""
+    detected_ppe = {d.get("label", "").lower() for d in detections} & set(PPE_ITEMS)
     return {
-        "compliance_rate": round(compliance_rate, 1),
-        "detected_items": list(detected_ppe),
-        "missing_items": [ppe for ppe in PPE_ITEMS if ppe not in detected_ppe],
-        "status": get_compliance_status(compliance_rate)
+        "compliance_rate": None,
+        "detected_items": sorted(detected_ppe),
+        "missing_items": [],
+        "status": {
+            "level": "NOT ASSESSED",
+            "color": "#64748b",
+            "text_color": "#ffffff",
+            "message": "Detections require human review; they do not establish compliance."
+        }
     }
 
 def get_compliance_status(rate: float) -> dict:

@@ -26,6 +26,8 @@ class RiskAssessmentEngine:
         Supports PPE classes: ['helmet', 'gloves', 'vest', 'boots', 'goggles', 'person']
         """
         clean = raw_label.lower().replace("-", "_").replace(" ", "_").strip()
+        if clean.startswith("no_"):
+            return clean
 
         # PPE items - all positive detections
         ppe_keys = ["helmet", "hard_hat", "gloves", "glove", "vest", "hi_vis", "boots", "boot", "goggles", "goggle", "person", "worker"]
@@ -87,6 +89,18 @@ class RiskAssessmentEngine:
                 "color": "#0066cc",  # Blue for worker
                 "text_color": "#ffffff"
             }
+        elif norm_key.startswith("no_"):
+            return {
+                "raw_label": raw_label,
+                "normalized_key": norm_key,
+                "is_ppe_item": False,
+                "confidence": confidence,
+                "bbox": bbox,
+                "title": raw_label,
+                "category": "Model flag - review required",
+                "color": "#dc3545",
+                "text_color": "#ffffff"
+            }
         else:
             return {
                 "raw_label": raw_label,
@@ -122,7 +136,7 @@ class RiskAssessmentEngine:
         compliance = calculate_ppe_compliance(detections)
 
         # Determine overall site compliance status
-        compliance_status = get_compliance_status(compliance["compliance_rate"])
+        compliance_status = compliance["status"]
 
         # Aggregate statistics
         total_detections = len(evaluated_all)
@@ -142,6 +156,6 @@ class RiskAssessmentEngine:
             "workers": workers,
             "summary_statement": compliance_status["message"],
             "overall_color": compliance_status["color"],
-            "total_hazards": 0,  # For backward compatibility with frontend
-            "compliant_count": total_ppe
+            "total_hazards": None,
+            "compliant_count": None
         }

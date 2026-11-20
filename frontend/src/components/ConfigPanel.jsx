@@ -17,7 +17,7 @@ export const ConfigPanel = ({ config, onConfigChange, isProcessing }) => {
           </div>
         ) : (
           <div style={styles.info}>
-            ℹ️ Running in <strong>Demo / Simulation Mode</strong>
+            Model unavailable. {config.detector_status || 'Check the backend connection.'}
           </div>
         )}
         {config.class_names?.length > 0 && (
@@ -74,7 +74,7 @@ export const ConfigPanel = ({ config, onConfigChange, isProcessing }) => {
             onChange={(e) => handleChange('show_compliant', e.target.checked)}
             disabled={isProcessing}
           />
-          <span>Show Compliant PPE in annotations</span>
+          <span>Show positive PPE detections in annotations</span>
         </label>
       </div>
 

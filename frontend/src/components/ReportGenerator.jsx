@@ -55,9 +55,9 @@ export const ReportGenerator = ({ assessment, auditMetadata }) => {
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.header}>📄 Downloadable Safety Recommendation Report</h2>
+      <h2 style={styles.header}>📄 Downloadable Detection Summary</h2>
       <p style={styles.description}>
-        Generate and download formal safety audit reports for site management and safety audits.
+        Detections require human review and do not establish compliance or site safety.
       </p>
 
       <div style={styles.buttonGrid}>
@@ -66,14 +66,14 @@ export const ReportGenerator = ({ assessment, auditMetadata }) => {
           disabled={loading}
           style={{ ...styles.button, ...styles.buttonPrimary }}
         >
-          📥 Download HTML Safety Audit Report
+          📥 Download HTML Detection Summary
         </button>
         <button
           onClick={() => handleGenerateReport('pdf')}
           disabled={loading}
           style={{ ...styles.button, ...styles.buttonSecondary }}
         >
-          📄 Download Official PDF Audit Report
+          📄 Download PDF Detection Summary
         </button>
       </div>
 

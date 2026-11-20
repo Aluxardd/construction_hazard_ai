@@ -3,7 +3,9 @@ import React from 'react';
 export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
   if (!assessment) return null;
 
-  const items = showHazardsOnly ? assessment.hazards : assessment.all_items;
+  const items = showHazardsOnly
+    ? assessment.all_items?.filter((item) => item.normalized_key?.startsWith('no_'))
+    : assessment.all_items;
 
   if (!items || items.length === 0) {
     return (
@@ -22,30 +24,20 @@ export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
               <th style={styles.headerCell}>Status</th>
               <th style={styles.headerCell}>Finding / Item</th>
               <th style={styles.headerCell}>Confidence</th>
-              <th style={styles.headerCell}>Likelihood</th>
-              <th style={styles.headerCell}>Severity</th>
-              <th style={styles.headerCell}>Risk Score</th>
-              <th style={styles.headerCell}>Risk Tier</th>
-              <th style={styles.headerCell}>Standard</th>
-              <th style={styles.headerCell}>Action Required</th>
+              <th style={styles.headerCell}>Model label</th>
+              <th style={styles.headerCell}>Bounding box (xyxy)</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item, idx) => (
               <tr key={idx} style={styles.bodyRow}>
                 <td style={styles.cell}>
-                  {item.is_hazard ? '⚠ VIOLATION' : '✔ COMPLIANT'}
+                  {item.normalized_key?.startsWith('no_') ? 'Review model flag' : 'Detected'}
                 </td>
                 <td style={styles.cell}>{item.title}</td>
                 <td style={styles.cell}>{Math.round(item.confidence * 100)}%</td>
-                <td style={styles.cell}>{item.likelihood} ({item.likelihood_label})</td>
-                <td style={styles.cell}>{item.severity} ({item.severity_label?.split(' ')[0]})</td>
-                <td style={{ ...styles.cell, fontWeight: 'bold' }}>{item.risk_score}</td>
-                <td style={{ ...styles.cell, ...getRiskTierStyle(item.risk_tier) }}>
-                  {item.risk_tier}
-                </td>
-                <td style={styles.cell}>{item.standard_ref}</td>
-                <td style={styles.cell}>{item.recommendation}</td>
+                <td style={styles.cell}>{item.raw_label}</td>
+                <td style={styles.cell}>{item.bbox?.join(', ')}</td>
               </tr>
             ))}
           </tbody>

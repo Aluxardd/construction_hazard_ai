@@ -1,229 +1,57 @@
-# 🏗️ Construction Safety AI - PPE Detection System
+# Construction Safety AI
 
-**AI-Powered PPE (Personal Protective Equipment) Identification & Compliance**
+React, FastAPI and Ultralytics YOLO provide image-based PPE detection and downloadable detection summaries. Results are model predictions, not a safety or compliance assessment; a qualified person must review them.
 
-**Department of Computer Science — BSc (Hons) Final Year Project**  
-*Student:* **Serghei Coceban**  
-*Institutions:* **University of Bolton & Regent College London**  
-*Stack:* **React 18 (Frontend) + FastAPI (Backend) + YOLOv8 (Detection)**
+## Run locally
 
----
+From the project directory:
 
-## 📋 Quick Start
-
-### 1. Install Dependencies
-```bash
-pip install -r requirements-api.txt
-cd frontend && npm install && cd ..
+```powershell
+python -m pip install -r requirements-api.txt
+Set-Location frontend
+npm install
+Set-Location ..
+python -m uvicorn backend:app --host 127.0.0.1 --port 8000
 ```
 
-### 2. Start Application
-**Windows:**
-```bash
-run-full-stack.bat
+In another terminal:
+
+```powershell
+Set-Location frontend
+npm run dev
 ```
 
-**macOS/Linux:**
-```bash
-./run-full-stack.sh
+Open http://localhost:3000. Alternatively, run `run-full-stack.bat` from the project directory. The Vite development server proxies `/api` to port 8000. A production web server must provide the same proxy, including for reports and the sample image.
+
+Upload one or more photographs and select **Analyze Images**. The included sample is a synthetic illustration, not a realistic PPE test image, and may produce no detections. Check model readiness and classes at http://localhost:8000/health; API documentation is at http://localhost:8000/docs. If the weights cannot be loaded, inference returns an error rather than simulated results.
+
+## Model and interpretation
+
+The backend loads `models/weights/best.pt` using Ultralytics. The supplied `exp.pt` is byte-identical to it. The checkpoint specifies a 640-pixel inference size and these class IDs:
+
+| ID | Label | ID | Label |
+|---:|---|---:|---|
+| 0 | helmet | 6 | no_helmet |
+| 1 | gloves | 7 | no_goggle |
+| 2 | vest | 8 | no_gloves |
+| 3 | boots | 9 | no_boots |
+| 4 | goggles | 10 | forklift |
+| 5 | Person | 11 | no_vest |
+
+Classes are read from the loaded checkpoint. Replace `best.pt` and restart the backend to use different compatible trusted weights. Do not load untrusted `.pt` files.
+
+The `no_*` classes are model predictions, not confirmed violations. No conclusion is made from the absence of a detection; positive PPE detections are not associated with individual workers or verified against task requirements. The system does not compute a compliance percentage or a 5×5 risk score. Images with occlusion, unusual viewpoints or unfamiliar scenes can produce missed or false detections.
+
+Images are EXIF-oriented and converted to RGB before being passed to Ultralytics, which performs its own resizing, normalization and non-maximum suppression. Returned `bbox` values are original oriented image pixel coordinates `[x1, y1, x2, y2]`; boxes are drawn directly on that image before display. Confidence and IoU controls are submitted as multipart form fields. Single and batch results include image dimensions, inference time, labels, confidence and coordinates.
+
+## Diagnostics and tests
+
+Backend startup logs report model readiness and labels. For local debugging, run Uvicorn with `--log-level debug` to log image dimensions, inference time and detection details; do not enable debug logging for sensitive production images. The API does not include image contents in logs.
+
+```powershell
+python -m unittest discover -s tests -v
+Set-Location frontend
+npm run build
 ```
 
-### 3. Open Browser
-Navigate to: **http://localhost:3000**
-
----
-
-## 🏗️ Application Overview
-
-This system provides automated PPE compliance analysis by:
-1. **Uploading** construction site photographs
-2. **Detecting** PPE items (helmet, vest, gloves, boots, goggles) with YOLOv8 deep learning
-3. **Assessing** compliance status and identifying missing PPE
-4. **Generating** downloadable compliance audit reports (HTML/PDF)
-
-### Architecture
-```
-React Frontend (Port 3000)
-        ↓↑ REST API (HTTP)
-FastAPI Backend (Port 8000)
-        ↓
-YOLOv8 Detection + PPE Compliance Engine
-```
-
----
-
-## 📊 5×5 Risk Assessment Matrix
-
-Risk Score = **Likelihood (1–5) × Severity (1–5)**
-
-| Score | Tier | Action | Timeframe |
-|:---:|:---:|:---|:---|
-| **15–25** | 🔴 Critical | Immediate Work Stoppage | Instant |
-| **10–14** | 🟠 High | Urgent Rectification | Within 1 hour |
-| **5–9** | 🟡 Medium | Remedial Action | Current shift |
-| **1–4** | 🟢 Low | Routine Monitoring | Standard supervision |
-
----
-
-## 📁 Project Structure
-
-```
-construction_hazard_ai/
-├── backend.py                     ← FastAPI REST API server
-├── requirements-api.txt           ← Python dependencies
-├── config.py                      ← Hazard knowledge base, OSHA rules
-│
-├── frontend/                      ← React application
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── index.html
-│   └── src/
-│       ├── App.jsx               ← Main component
-│       ├── App.css               ← Global styles
-│       ├── main.jsx
-│       └── components/           ← 7 reusable components
-│           ├── ConfigPanel.jsx
-│           ├── ImageUploader.jsx
-│           ├── KPICard.jsx
-│           ├── DetectionResults.jsx
-│           ├── RiskMatrix.jsx
-│           ├── HazardRegister.jsx
-│           └── ReportGenerator.jsx
-│
-├── core/                          ← Detection & analysis
-│   ├── detector.py               ← YOLOv8 inference
-│   ├── risk_engine.py            ← Risk assessment
-│   ├── visualizer.py             ← Image annotation
-│   └── report_generator.py       ← PDF/HTML reports
-│
-├── models/weights/               ← YOLOv8 models
-│   ├── best.pt                   ← Your trained model
-│   └── exp.pt                    ← Alternative model
-│
-├── run-full-stack.bat            ← Windows startup
-├── run-full-stack.sh             ← Unix startup
-├── verify_setup.py               ← Verification script
-│
-├── 00_READ_ME_FIRST.md           ← Start here!
-├── START_HERE.md                 ← Navigation guide
-├── QUICKSTART.md                 ← 5-minute setup
-├── REACT_README.md               ← Complete guide (50+ pages)
-├── MIGRATION_GUIDE.md            ← Streamlit comparison
-└── CONVERSION_SUMMARY.md         ← Technical details
-```
-
----
-
-## 🚀 Deploying Your Trained Model
-
-### Step 1: Add Your Weights
-Copy your trained YOLOv8 model:
-```bash
-cp /path/to/your/best.pt models/weights/best.pt
-```
-
-Or upload via UI: Config Panel → "Upload Custom Weights (.pt)"
-
-### Step 2: Verify Classes (config.py)
-Ensure your class names map to the hazard knowledge base:
-```python
-HAZARD_KNOWLEDGE_BASE = {
-    "no_helmet": {
-        "title": "Missing Hard Hat / Head Protection",
-        "default_likelihood": 4,
-        "default_severity": 4,
-        "standard_ref": "OSHA 1926.100",
-        "recommendation": "..."
-    },
-    # Add custom hazards here
-}
-```
-
-### Step 3: Start Application
-```bash
-run-full-stack.bat    # Windows
-./run-full-stack.sh   # macOS/Linux
-```
-
----
-
-## ✨ Features
-
-✅ Image upload (single or batch)  
-✅ YOLOv8 hazard detection  
-✅ 5×5 risk matrix assessment  
-✅ Annotated image display  
-✅ KPI dashboard (6 metrics)  
-✅ Hazard register (filterable table)  
-✅ HTML & PDF report generation  
-✅ Configuration management  
-✅ Custom model weights upload  
-✅ Demo mode (simulated detections)  
-✅ Full REST API with Swagger docs  
-✅ Responsive design  
-
----
-
-## 🌐 Services
-
-| Service | URL | Purpose |
-|---------|-----|---------|
-| **Frontend** | http://localhost:3000 | User interface |
-| **Backend API** | http://localhost:8000 | REST API |
-| **Swagger Docs** | http://localhost:8000/docs | Interactive API docs |
-| **ReDoc** | http://localhost:8000/redoc | Alternative API docs |
-
----
-
-## 📚 Documentation
-
-| Guide | Time | Purpose |
-|-------|------|---------|
-| **00_READ_ME_FIRST.md** | 5 min | Main entry point |
-| **QUICKSTART.md** | 5 min | Quick setup |
-| **REACT_README.md** | 20 min | Complete guide |
-| **MIGRATION_GUIDE.md** | 10 min | Streamlit comparison |
-
----
-
-## 🔧 Development
-
-### Frontend
-```bash
-cd frontend
-npm run dev              # Start dev server with hot reload
-npm run build          # Production build
-```
-
-### Backend
-```bash
-python -m uvicorn backend:app --reload
-```
-
----
-
-## 🚢 Production Deployment
-
-### Frontend (Vercel, Netlify, etc.)
-```bash
-cd frontend && npm run build  # Creates: frontend/dist/
-```
-
-### Backend (Render, Railway, etc.)
-```bash
-python -m uvicorn backend:app --host 0.0.0.0 --port 8000
-```
-
----
-
-## ✅ Verification
-
-```bash
-python verify_setup.py
-```
-
-Should show: `[OK] All verification checks passed!`
-
----
-
-**📖 For detailed information, see: `00_READ_ME_FIRST.md`**
+Realistic, labelled construction images are needed to measure accuracy and verify behavior for specific PPE, multiple workers and occlusion. The training dataset is not included in this repository.

@@ -3,20 +3,24 @@ FastAPI Backend for PPE Detection & Compliance
 Serves detection, compliance assessment, and report generation APIs
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import io
 import json
+import base64
+import logging
+import time
 from pathlib import Path
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 import numpy as np
 
 # Local core modules
 from config import (
+    BASE_DIR,
     DEFAULT_MODEL_PATH,
     DEFAULT_CONFIDENCE,
     DEFAULT_IOU_THRESHOLD,
@@ -47,6 +51,8 @@ app.add_middleware(
 # Global instances
 detector = PPEDetector(model_path=str(DEFAULT_MODEL_PATH))
 risk_engine = RiskAssessmentEngine()
+logger = logging.getLogger("uvicorn.error")
+logger.info("Detector ready=%s, classes=%s, status=%s", detector.is_ready(), detector.class_names, detector.status_message)
 
 
 class DetectionRequest(BaseModel):
@@ -73,10 +79,9 @@ async def health_check():
     return {
         "status": "ok",
         "detector_ready": detector.is_ready(),
-        "model_path": str(DEFAULT_MODEL_PATH),
         "is_custom_model": detector.is_custom_model,
         "class_names": detector.class_names,
-        "status_message": detector.status_message,
+        "status_message": "Model loaded." if detector.is_ready() else "Model unavailable. Check backend logs.",
         "ultralytics_available": ULTRALYTICS_AVAILABLE,
         "reportlab_available": REPORTLAB_AVAILABLE,
         "detection_mode": "PPE Detection"
@@ -90,11 +95,10 @@ async def get_config():
     return {
         "default_confidence": DEFAULT_CONFIDENCE,
         "default_iou_threshold": DEFAULT_IOU_THRESHOLD,
-        "weights_path": str(DEFAULT_MODEL_PATH),
         "weights_exist": weights_exist,
         "is_custom_model": detector.is_custom_model,
         "class_names": detector.class_names,
-        "detector_status": detector.status_message,
+        "detector_status": "Model loaded." if detector.is_ready() else "Model unavailable. Check backend logs.",
         "detection_mode": "PPE Identification"
     }
 
@@ -102,105 +106,86 @@ async def get_config():
 @app.post("/detect")
 async def detect_ppe(
     file: UploadFile = File(...),
-    conf_threshold: float = DEFAULT_CONFIDENCE,
-    iou_threshold: float = DEFAULT_IOU_THRESHOLD,
-    show_compliant: bool = True
+    conf_threshold: float = Form(DEFAULT_CONFIDENCE, ge=0, le=1),
+    iou_threshold: float = Form(DEFAULT_IOU_THRESHOLD, ge=0, le=1),
+    show_compliant: bool = Form(True)
 ):
     """
     Detect PPE items in a single image
     Returns: detections, compliance score, annotated image
     """
+    result = await process_image(file, conf_threshold, iou_threshold, show_compliant)
+    return {**result, "success": True}
+
+
+async def process_image(file, conf_threshold, iou_threshold, show_compliant):
+    if not detector.is_ready():
+        raise HTTPException(status_code=503, detail="Detection model is unavailable. Check backend logs and model weights.")
     try:
-        # Read and validate image
         contents = await file.read()
-        pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
+        with Image.open(io.BytesIO(contents)) as image:
+            pil_img = ImageOps.exif_transpose(image).convert("RGB")
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a readable image.")
 
-        # Run PPE detection
+    try:
+        start = time.perf_counter()
         dets = detector.detect(pil_img, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
-
-        # Calculate PPE compliance
-        compliance = calculate_ppe_compliance(dets)
-
-        # Risk assessment (for context, though PPE-focused)
-        img_eval = risk_engine.assess_batch(dets)
-        items_to_draw = img_eval["all_items"] if show_compliant else img_eval["hazards"]
-
-        # Annotate image
-        annotated_img = annotate_image(pil_img, items_to_draw)
-
-        # Convert annotated image to base64 for JSON response
-        import base64
-        img_buffer = io.BytesIO()
-        annotated_img.save(img_buffer, format="PNG")
-        img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        evaluation = risk_engine.assess_batch(dets)
+        items = evaluation["all_items"]
+        if not show_compliant:
+            items = [item for item in items if not item["is_ppe_item"]]
+        annotated = annotate_image(pil_img, items)
+        buffer = io.BytesIO()
+        annotated.save(buffer, format="PNG")
+        logger.debug(
+            "Inference image_size=%s configured_imgsz=%s elapsed_ms=%s detections=%s",
+            pil_img.size, detector.model.overrides.get("imgsz"), elapsed_ms, dets,
+        )
         return {
             "filename": file.filename,
+            "image_size": list(pil_img.size),
+            "inference_ms": elapsed_ms,
             "detections": dets,
-            "ppe_compliance": compliance,
-            "evaluation": img_eval,
-            "annotated_image": f"data:image/png;base64,{img_base64}",
-            "success": True
+            "ppe_compliance": calculate_ppe_compliance(dets),
+            "evaluation": evaluation,
+            "annotated_image": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(),
         }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Image inference or annotation failed")
+        raise HTTPException(status_code=500, detail="Image processing failed. Check backend logs.")
+
+
+@app.get("/sample-image")
+async def sample_image():
+    return FileResponse(BASE_DIR / "samples" / "sample_site.jpg", media_type="image/jpeg")
 
 
 @app.post("/detect-batch")
 async def detect_batch_ppe(
     files: List[UploadFile] = File(...),
-    conf_threshold: float = DEFAULT_CONFIDENCE,
-    iou_threshold: float = DEFAULT_IOU_THRESHOLD,
-    show_compliant: bool = True
+    conf_threshold: float = Form(DEFAULT_CONFIDENCE, ge=0, le=1),
+    iou_threshold: float = Form(DEFAULT_IOU_THRESHOLD, ge=0, le=1),
+    show_compliant: bool = Form(True)
 ):
     """
     Detect PPE in multiple images and generate aggregate compliance assessment
     """
-    try:
-        import base64
-        all_detections = []
-        processed_results = []
-        all_compliance = []
+    processed_results = []
+    all_detections = []
+    for file in files:
+        result = await process_image(file, conf_threshold, iou_threshold, show_compliant)
+        processed_results.append(result)
+        all_detections.extend(result["detections"])
 
-        for file in files:
-            contents = await file.read()
-            pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
-
-            dets = detector.detect(pil_img, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
-            compliance = calculate_ppe_compliance(dets)
-            img_eval = risk_engine.assess_batch(dets)
-            items_to_draw = img_eval["all_items"] if show_compliant else img_eval["hazards"]
-            annotated_img = annotate_image(pil_img, items_to_draw)
-
-            # Convert to base64
-            img_buffer = io.BytesIO()
-            annotated_img.save(img_buffer, format="PNG")
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-
-            processed_results.append({
-                "filename": file.filename,
-                "annotated_image": f"data:image/png;base64,{img_base64}",
-                "ppe_compliance": compliance,
-                "evaluation": img_eval
-            })
-
-            all_detections.extend(dets)
-            all_compliance.append(compliance)
-
-        # Aggregate compliance assessment
-        avg_compliance = sum(c["compliance_rate"] for c in all_compliance) / len(all_compliance) if all_compliance else 0
-        site_assessment = risk_engine.assess_batch(all_detections)
-        site_assessment["average_ppe_compliance"] = round(avg_compliance, 1)
-
-        return {
-            "results": processed_results,
-            "site_assessment": site_assessment,
-            "average_compliance": round(avg_compliance, 1),
-            "total_images": len(files),
-            "success": True
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "results": processed_results,
+        "site_assessment": risk_engine.assess_batch(all_detections),
+        "average_compliance": None,
+        "total_images": len(files),
+        "success": True
+    }
 
 
 @app.post("/generate-report")

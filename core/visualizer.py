@@ -36,20 +36,14 @@ def annotate_image(image: Image.Image, items: List[Dict[str, Any]]) -> Image.Ima
         x1, y1, x2, y2 = bbox
         color = item.get("color", "#808080")
         conf = item.get("confidence", 0.0)
-        title = item.get("title", item.get("raw_label", "Detection"))
-        normalized_key = item.get("normalized_key", "unknown")
+        title = item.get("raw_label", item.get("label", "Detection"))
 
         # Draw thick rectangle
         line_width = max(3, int(min(w, h) * 0.005))
         draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
 
         # Format label text
-        if item.get("is_ppe_item", False):
-            label_text = f"✓ {title} ({int(conf * 100)}%)"
-        elif normalized_key == "person":
-            label_text = f"👤 Worker ({int(conf * 100)}%)"
-        else:
-            label_text = f"? {title} ({int(conf * 100)}%)"
+        label_text = f"{title} ({conf * 100:.1f}%)"
 
         # Calculate text bounding box
         text_bbox = draw.textbbox((x1, y1), label_text, font=font)

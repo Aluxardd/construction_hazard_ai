@@ -5,7 +5,7 @@ export const DetectionResults = ({ results }) => {
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.header}>PPE Detection Results & Compliance Analysis</h2>
+      <h2 style={styles.header}>Detection Results</h2>
 
       {results.map((result, idx) => (
         <div key={idx} style={styles.resultCard}>
@@ -14,10 +14,9 @@ export const DetectionResults = ({ results }) => {
               <strong>Image:</strong> <code>{result.filename}</code>
             </span>
             <span>
-              PPE Items Detected: <strong>{result.ppe_compliance?.detected_items?.length || 0}</strong> |{' '}
-              Compliance: <strong style={{ color: getComplianceColor(result.ppe_compliance?.compliance_rate) }}>
-                {result.ppe_compliance?.compliance_rate || 0}%
-              </strong>
+              Detections: <strong>{result.detections?.length ?? 0}</strong>
+              {result.image_size && <> | Image: {result.image_size.join(' × ')} px</>}
+              {result.inference_ms != null && <> | Inference: {result.inference_ms} ms</>}
             </span>
           </div>
 
@@ -54,18 +53,18 @@ export const DetectionResults = ({ results }) => {
                   </ul>
                 </div>
                 
-                {result.ppe_compliance.missing_items?.length > 0 && (
-                  <div style={styles.ppeColumn}>
-                    <strong style={styles.ppeLabel}>✗ Missing PPE:</strong>
-                    <ul style={styles.ppeList}>
-                      {result.ppe_compliance.missing_items.map((item) => (
-                        <li key={item} style={{ ...styles.ppeItem, color: '#dc3545' }}>
-                          <span style={{ color: '#dc3545', fontWeight: 'bold' }}>✗</span> {item.charAt(0).toUpperCase() + item.slice(1)}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+              </div>
+              <div>
+                <strong>Model detections</strong>
+                {result.detections?.length ? (
+                  <ul>
+                    {result.detections.map((detection, index) => (
+                      <li key={index}>
+                        {detection.label}: {(detection.confidence * 100).toFixed(1)}% — xyxy [{detection.bbox.join(', ')}]
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p>No objects detected at the selected threshold.</p>}
               </div>
             </div>
           )}
@@ -89,13 +88,6 @@ export const DetectionResults = ({ results }) => {
     </div>
   );
 };
-
-function getComplianceColor(rate) {
-  if (rate >= 100) return '#28a745'; // Green
-  if (rate >= 80) return '#ffc107'; // Yellow
-  if (rate >= 50) return '#fd7e14'; // Orange
-  return '#dc3545'; // Red
-}
 
 const styles = {
   container: {

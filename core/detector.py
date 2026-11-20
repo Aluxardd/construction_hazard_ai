@@ -33,7 +33,7 @@ class PPEDetector:
     def _initialize_model(self):
         """Attempts to load the trained YOLOv8 model."""
         if not ULTRALYTICS_AVAILABLE:
-            self.status_message = "Ultralytics package not installed. Running in Simulation/Demo Mode."
+            self.status_message = "Ultralytics package is not installed."
             return
 
         if self.model_path and self.model_path.exists():
@@ -43,10 +43,10 @@ class PPEDetector:
                 self.class_names = list(self.model.names.values()) if hasattr(self.model, "names") else []
                 self.status_message = f"Loaded trained weights from: {self.model_path.name}"
             except Exception as e:
-                self.status_message = f"Failed to load weights at {self.model_path}: {e}. Falling back to demo mode."
+                self.status_message = f"Failed to load model weights: {e}"
                 self.model = None
         else:
-            self.status_message = f"No trained weights found at '{self.model_path}'. Running in Demo Mode with simulated PPE detections."
+            self.status_message = "Trained model weights were not found."
 
     def is_ready(self) -> bool:
         return self.model is not None
@@ -60,8 +60,7 @@ class PPEDetector:
         """
         if self.is_ready():
             return self._detect_with_yolo(image, conf_threshold, iou_threshold)
-        else:
-            return self._detect_mock(image, conf_threshold)
+        raise RuntimeError(self.status_message or "Detection model is unavailable.")
 
     def _detect_with_yolo(self, image: Union[Image.Image, np.ndarray], conf: float, iou: float) -> List[Dict[str, Any]]:
         """Runs actual YOLO inference for PPE detection."""
@@ -83,7 +82,7 @@ class PPEDetector:
             if boxes is not None and len(boxes) > 0:
                 for box in boxes:
                     cls_id = int(box.cls[0].item())
-                    label = self.model.names.get(cls_id, f"ppe_{cls_id}")
+                    label = result.names[cls_id]
                     confidence = float(box.conf[0].item())
                     coords = box.xyxy[0].tolist()  # [x1, y1, x2, y2]
                     
@@ -92,6 +91,7 @@ class PPEDetector:
                     
                     detections.append({
                         "label": label,
+                        "class_id": cls_id,
                         "confidence": round(confidence, 4),
                         "bbox": [round(c, 1) for c in coords],
                         "type": ppe_type
@@ -103,53 +103,8 @@ class PPEDetector:
         worker_labels = ["person", "worker"]
         if any(worker in label.lower() for worker in worker_labels):
             return "worker"
-        return "ppe_item"
-
-    def _detect_mock(self, image: Union[Image.Image, np.ndarray], conf: float) -> List[Dict[str, Any]]:
-        """
-        Simulation mode: Returns representative PPE detections on the image
-        for demonstration before custom weights are loaded.
-        """
-        if isinstance(image, Image.Image):
-            w, h = image.size
-        elif isinstance(image, np.ndarray):
-            h, w = image.shape[:2]
-        else:
-            w, h = 800, 600
-
-        # Generate sample plausible PPE detections
-        simulated_ppe = [
-            {
-                "label": "helmet",
-                "confidence": 0.92,
-                "bbox": [int(w * 0.35), int(h * 0.12), int(w * 0.50), int(h * 0.25)],
-                "type": "ppe_item"
-            },
-            {
-                "label": "vest",
-                "confidence": 0.88,
-                "bbox": [int(w * 0.32), int(h * 0.28), int(w * 0.55), int(h * 0.58)],
-                "type": "ppe_item"
-            },
-            {
-                "label": "gloves",
-                "confidence": 0.85,
-                "bbox": [int(w * 0.28), int(h * 0.52), int(w * 0.38), int(h * 0.62)],
-                "type": "ppe_item"
-            },
-            {
-                "label": "boots",
-                "confidence": 0.80,
-                "bbox": [int(w * 0.38), int(h * 0.75), int(w * 0.52), int(h * 0.92)],
-                "type": "ppe_item"
-            },
-            {
-                "label": "goggles",
-                "confidence": 0.75,
-                "bbox": [int(w * 0.40), int(h * 0.15), int(w * 0.48), int(h * 0.22)],
-                "type": "ppe_item"
-            }
-        ]
-
-        # Filter by requested confidence threshold
-        return [p for p in simulated_ppe if p["confidence"] >= conf]
+        if label.lower().startswith("no_"):
+            return "missing_ppe"
+        if label.lower() in {"helmet", "gloves", "vest", "boots", "goggles"}:
+            return "ppe_item"
+        return "object"
