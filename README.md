@@ -1,119 +1,229 @@
-# AI Tool for Automated Hazard Identification and Risk Assessment on Construction Sites
+# 🏗️ Construction Safety AI - React + FastAPI Application
+
+**AI-Powered Hazard Detection & 5×5 Risk Assessment**
 
 **Department of Computer Science — BSc (Hons) Final Year Project**  
 *Student:* **Serghei Coceban**  
 *Institutions:* **University of Bolton & Regent College London**  
-*Frameworks:* **YOLOv8 Computer Vision, OSHA 29 CFR 1926 Safety Regulations, 5×5 Risk Assessment Matrix**
+*Stack:* **React 18 (Frontend) + FastAPI (Backend) + YOLOv8 (Detection)**
 
 ---
 
-## 🏗️ Project Overview
+## 📋 Quick Start
 
-This system provides a practical, automated construction safety solution by processing standard site photographs, detecting physical hazards with deep learning (YOLOv8), evaluating risk using a rule-based 5×5 Likelihood × Severity matrix, and automatically compiling downloadable PDF/HTML safety audit reports with actionable mitigation instructions.
-
-```mermaid
-flowchart LR
-    A["Site Photographs (Upload)"] --> B["YOLOv8 Object Detector\n(Trained best.pt)"]
-    B --> C["Risk Assessment Engine\n(OSHA Rules & 5x5 Matrix)"]
-    C --> D["Annotated Images\n(Risk Tier Color BBoxes)"]
-    C --> E["5x5 Risk Heatmap\n(Likelihood x Severity)"]
-    C --> F["Hazard Action Register\n(Priorities & Mitigations)"]
-    C --> G["Downloadable Safety Audit Report\n(PDF / HTML)"]
+### 1. Install Dependencies
+```bash
+pip install -r requirements-api.txt
+cd frontend && npm install && cd ..
 ```
+
+### 2. Start Application
+**Windows:**
+```bash
+run-full-stack.bat
+```
+
+**macOS/Linux:**
+```bash
+./run-full-stack.sh
+```
+
+### 3. Open Browser
+Navigate to: **http://localhost:3000**
 
 ---
 
-## 🚀 How to Deploy Your Trained Model (`best.pt`)
+## 🏗️ Application Overview
 
-Since you already trained your model, deploying it into this project is very simple:
+This system provides automated construction safety analysis by:
+1. **Uploading** site photographs
+2. **Detecting** hazards with YOLOv8 deep learning
+3. **Assessing** risk using a 5×5 Likelihood × Severity matrix (OSHA compliant)
+4. **Generating** downloadable safety audit reports (HTML/PDF)
 
-### Step 1: Copy your `.pt` weights
-Copy your trained YOLOv8 weights file (typically saved in `runs/detect/train/weights/best.pt`) into the project's weights directory:
-```bash
-cp /path/to/your/best.pt models/weights/best.pt
+### Architecture
 ```
-*Note: If you name it `best.pt`, the system will automatically discover and load it on startup.*
-
-*(Alternative: You can also launch the web app and upload `best.pt` directly via the sidebar **"Upload Custom Weights (.pt)"** tool).*
-
-### Step 2: Install Dependencies
-Open your terminal in the project directory:
-```bash
-cd /Users/bloemscheffer/Desktop/construction_hazard_ai
-pip install -r requirements.txt
+React Frontend (Port 3000)
+        ↓↑ REST API (HTTP)
+FastAPI Backend (Port 8000)
+        ↓
+YOLOv8 Detection + Risk Engine
 ```
-*(Dependencies include `ultralytics`, `torch`, `streamlit`, `opencv-python-headless`, and `reportlab`).*
-
-### Step 3: Verify Your Custom Classes (in `config.py`)
-YOLOv8 detects objects based on the class labels defined in your training dataset (e.g. `no_helmet`, `no_vest`, `missing_guardrail`, `unsafe_ladder`, etc.).
-
-Check `config.py` to ensure your class names match or alias to the knowledge base:
-```python
-HAZARD_KNOWLEDGE_BASE = {
-    "no_helmet": {
-        "title": "Missing Hard Hat / Head Protection",
-        "category": "PPE Violation",
-        "default_likelihood": 4,   # 1 (Rare) to 5 (Almost Certain)
-        "default_severity": 4,     # 1 (Negligible) to 5 (Catastrophic)
-        "standard_ref": "OSHA 1926.100 / EN 397",
-        "recommendation": "Provide certified hard hat immediately. Suspend worker until compliant."
-    },
-    # Add any extra hazard labels specific to your dataset here!
-}
-```
-
-### Step 4: Launch the Web Application
-Run the Streamlit application:
-```bash
-streamlit run app.py
-```
-The browser will automatically open at `http://localhost:8501`.
 
 ---
 
 ## 📊 5×5 Risk Assessment Matrix
 
-The risk engine maps every detected hazard onto a standardized construction industry 5×5 matrix:
+Risk Score = **Likelihood (1–5) × Severity (1–5)**
 
-$$\text{Risk Score} = \text{Likelihood (1--5)} \times \text{Severity (1--5)}$$
-
-| Score Range | Risk Tier | Action Priority | Timeframe for Mitigation |
-|:---:|:---:|:---:|:---:|
-| **15 – 25** | 🔴 **Critical** | Immediate Work Stoppage | Instant resolution before any personnel re-entry |
-| **10 – 14** | 🟠 **High** | Urgent Rectification | Remedy within 1 hour; restrict access to danger zone |
-| **5 – 9** | 🟡 **Medium** | Remedial Action | Rectify within current work shift |
-| **1 – 4** | 🟢 **Low** | Routine Monitoring | Toolbox talks and standard supervision |
+| Score | Tier | Action | Timeframe |
+|:---:|:---:|:---|:---|
+| **15–25** | 🔴 Critical | Immediate Work Stoppage | Instant |
+| **10–14** | 🟠 High | Urgent Rectification | Within 1 hour |
+| **5–9** | 🟡 Medium | Remedial Action | Current shift |
+| **1–4** | 🟢 Low | Routine Monitoring | Standard supervision |
 
 ---
 
-## 📁 Project Directory Structure
+## 📁 Project Structure
 
-```text
+```
 construction_hazard_ai/
-├── README.md                      <- Complete project documentation and guide
-├── requirements.txt               <- Python dependencies (ultralytics, streamlit, etc.)
-├── config.py                      <- Knowledge base, OSHA rules, 5x5 matrix scoring
-├── app.py                         <- Streamlit Web Application (UI, multi-image upload, export)
-├── test_system.py                 <- Automated pipeline self-test
-├── models/
-│   └── weights/
-│       ├── README.md              <- Instructions for model weight placement
-│       └── best.pt                <- Put your trained YOLOv8 weights here!
-├── core/
-│   ├── __init__.py
-│   ├── detector.py                <- YOLOv8 inference engine (with demo fallback)
-│   ├── risk_engine.py             <- 5x5 Risk Matrix & rule-based engine
-│   ├── visualizer.py              <- Bounding box annotation & Matplotlib 5x5 heatmap
-│   └── report_generator.py        <- ReportLab PDF & print-ready HTML audit reports
-└── samples/
-    └── sample_site.jpg            <- Ready-to-use sample site image for quick testing
+├── backend.py                     ← FastAPI REST API server
+├── requirements-api.txt           ← Python dependencies
+├── config.py                      ← Hazard knowledge base, OSHA rules
+│
+├── frontend/                      ← React application
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── index.html
+│   └── src/
+│       ├── App.jsx               ← Main component
+│       ├── App.css               ← Global styles
+│       ├── main.jsx
+│       └── components/           ← 7 reusable components
+│           ├── ConfigPanel.jsx
+│           ├── ImageUploader.jsx
+│           ├── KPICard.jsx
+│           ├── DetectionResults.jsx
+│           ├── RiskMatrix.jsx
+│           ├── HazardRegister.jsx
+│           └── ReportGenerator.jsx
+│
+├── core/                          ← Detection & analysis
+│   ├── detector.py               ← YOLOv8 inference
+│   ├── risk_engine.py            ← Risk assessment
+│   ├── visualizer.py             ← Image annotation
+│   └── report_generator.py       ← PDF/HTML reports
+│
+├── models/weights/               ← YOLOv8 models
+│   ├── best.pt                   ← Your trained model
+│   └── exp.pt                    ← Alternative model
+│
+├── run-full-stack.bat            ← Windows startup
+├── run-full-stack.sh             ← Unix startup
+├── verify_setup.py               ← Verification script
+│
+├── 00_READ_ME_FIRST.md           ← Start here!
+├── START_HERE.md                 ← Navigation guide
+├── QUICKSTART.md                 ← 5-minute setup
+├── REACT_README.md               ← Complete guide (50+ pages)
+├── MIGRATION_GUIDE.md            ← Streamlit comparison
+└── CONVERSION_SUMMARY.md         ← Technical details
 ```
 
 ---
 
-## 🧪 Verification & Testing
+## 🚀 Deploying Your Trained Model
 
-You can run the self-test anytime to verify that all modules are operating cleanly:
+### Step 1: Add Your Weights
+Copy your trained YOLOv8 model:
 ```bash
-python3 test_system.py
+cp /path/to/your/best.pt models/weights/best.pt
 ```
+
+Or upload via UI: Config Panel → "Upload Custom Weights (.pt)"
+
+### Step 2: Verify Classes (config.py)
+Ensure your class names map to the hazard knowledge base:
+```python
+HAZARD_KNOWLEDGE_BASE = {
+    "no_helmet": {
+        "title": "Missing Hard Hat / Head Protection",
+        "default_likelihood": 4,
+        "default_severity": 4,
+        "standard_ref": "OSHA 1926.100",
+        "recommendation": "..."
+    },
+    # Add custom hazards here
+}
+```
+
+### Step 3: Start Application
+```bash
+run-full-stack.bat    # Windows
+./run-full-stack.sh   # macOS/Linux
+```
+
+---
+
+## ✨ Features
+
+✅ Image upload (single or batch)  
+✅ YOLOv8 hazard detection  
+✅ 5×5 risk matrix assessment  
+✅ Annotated image display  
+✅ KPI dashboard (6 metrics)  
+✅ Hazard register (filterable table)  
+✅ HTML & PDF report generation  
+✅ Configuration management  
+✅ Custom model weights upload  
+✅ Demo mode (simulated detections)  
+✅ Full REST API with Swagger docs  
+✅ Responsive design  
+
+---
+
+## 🌐 Services
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| **Frontend** | http://localhost:3000 | User interface |
+| **Backend API** | http://localhost:8000 | REST API |
+| **Swagger Docs** | http://localhost:8000/docs | Interactive API docs |
+| **ReDoc** | http://localhost:8000/redoc | Alternative API docs |
+
+---
+
+## 📚 Documentation
+
+| Guide | Time | Purpose |
+|-------|------|---------|
+| **00_READ_ME_FIRST.md** | 5 min | Main entry point |
+| **QUICKSTART.md** | 5 min | Quick setup |
+| **REACT_README.md** | 20 min | Complete guide |
+| **MIGRATION_GUIDE.md** | 10 min | Streamlit comparison |
+
+---
+
+## 🔧 Development
+
+### Frontend
+```bash
+cd frontend
+npm run dev              # Start dev server with hot reload
+npm run build          # Production build
+```
+
+### Backend
+```bash
+python -m uvicorn backend:app --reload
+```
+
+---
+
+## 🚢 Production Deployment
+
+### Frontend (Vercel, Netlify, etc.)
+```bash
+cd frontend && npm run build  # Creates: frontend/dist/
+```
+
+### Backend (Render, Railway, etc.)
+```bash
+python -m uvicorn backend:app --host 0.0.0.0 --port 8000
+```
+
+---
+
+## ✅ Verification
+
+```bash
+python verify_setup.py
+```
+
+Should show: `[OK] All verification checks passed!`
+
+---
+
+**📖 For detailed information, see: `00_READ_ME_FIRST.md`**

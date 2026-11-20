@@ -4,12 +4,16 @@ torch>=2.0.0
 torchvision>=0.15.0
 opencv-python-headless>=4.8.0
 
-# Web Application & Visualizations
-streamlit>=1.28.0
+# Web API Server
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# Visualizations
 matplotlib>=3.7.0
 pandas>=2.0.0
 pillow>=10.0.0
 numpy>=1.24.0,<2.0.0
 
-# PDF Report Generation (BSc Project Requirement)
+# PDF Report Generation
 reportlab>=4.0.0
