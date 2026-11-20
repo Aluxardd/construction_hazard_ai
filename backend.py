@@ -1,6 +1,6 @@
 """
-FastAPI Backend for Construction Hazard AI
-Serves detection, risk assessment, and report generation APIs
+FastAPI Backend for PPE Detection & Compliance
+Serves detection, compliance assessment, and report generation APIs
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
@@ -20,17 +20,19 @@ from config import (
     DEFAULT_MODEL_PATH,
     DEFAULT_CONFIDENCE,
     DEFAULT_IOU_THRESHOLD,
-    WEIGHTS_DIR
+    WEIGHTS_DIR,
+    calculate_ppe_compliance,
+    PPE_KNOWLEDGE_BASE
 )
-from core.detector import HazardDetector, ULTRALYTICS_AVAILABLE
+from core.detector import PPEDetector, ULTRALYTICS_AVAILABLE
 from core.risk_engine import RiskAssessmentEngine
 from core.visualizer import annotate_image, generate_risk_matrix_plot
 from core.report_generator import generate_pdf_report, generate_html_report, REPORTLAB_AVAILABLE
 
 app = FastAPI(
-    title="Construction Hazard AI API",
-    description="YOLOv8-based hazard detection and 5×5 risk assessment",
-    version="1.0.0"
+    title="PPE Detection & Compliance AI",
+    description="YOLOv8-based PPE detection and compliance assessment",
+    version="2.0.0"
 )
 
 # CORS Configuration for React frontend
@@ -43,7 +45,7 @@ app.add_middleware(
 )
 
 # Global instances
-detector = HazardDetector(model_path=str(DEFAULT_MODEL_PATH))
+detector = PPEDetector(model_path=str(DEFAULT_MODEL_PATH))
 risk_engine = RiskAssessmentEngine()
 
 
@@ -54,8 +56,8 @@ class DetectionRequest(BaseModel):
 
 
 class AuditMetadata(BaseModel):
-    site_name: str = "Bolton Central Construction Phase 2"
-    inspector_name: str = "S. Coceban (Safety Lead)"
+    site_name: str = "Construction Site"
+    inspector_name: str = "Safety Inspector"
     inspection_date: str = None
 
 
@@ -76,7 +78,8 @@ async def health_check():
         "class_names": detector.class_names,
         "status_message": detector.status_message,
         "ultralytics_available": ULTRALYTICS_AVAILABLE,
-        "reportlab_available": REPORTLAB_AVAILABLE
+        "reportlab_available": REPORTLAB_AVAILABLE,
+        "detection_mode": "PPE Detection"
     }
 
 
@@ -91,30 +94,34 @@ async def get_config():
         "weights_exist": weights_exist,
         "is_custom_model": detector.is_custom_model,
         "class_names": detector.class_names,
-        "detector_status": detector.status_message
+        "detector_status": detector.status_message,
+        "detection_mode": "PPE Identification"
     }
 
 
 @app.post("/detect")
-async def detect_hazards(
+async def detect_ppe(
     file: UploadFile = File(...),
     conf_threshold: float = DEFAULT_CONFIDENCE,
     iou_threshold: float = DEFAULT_IOU_THRESHOLD,
     show_compliant: bool = True
 ):
     """
-    Detect hazards in a single image
-    Returns: detections, annotated image, risk assessment
+    Detect PPE items in a single image
+    Returns: detections, compliance score, annotated image
     """
     try:
         # Read and validate image
         contents = await file.read()
         pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
 
-        # Run detection
+        # Run PPE detection
         dets = detector.detect(pil_img, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
 
-        # Risk assessment
+        # Calculate PPE compliance
+        compliance = calculate_ppe_compliance(dets)
+
+        # Risk assessment (for context, though PPE-focused)
         img_eval = risk_engine.assess_batch(dets)
         items_to_draw = img_eval["all_items"] if show_compliant else img_eval["hazards"]
 
@@ -130,6 +137,7 @@ async def detect_hazards(
         return {
             "filename": file.filename,
             "detections": dets,
+            "ppe_compliance": compliance,
             "evaluation": img_eval,
             "annotated_image": f"data:image/png;base64,{img_base64}",
             "success": True
@@ -139,25 +147,27 @@ async def detect_hazards(
 
 
 @app.post("/detect-batch")
-async def detect_batch(
+async def detect_batch_ppe(
     files: List[UploadFile] = File(...),
     conf_threshold: float = DEFAULT_CONFIDENCE,
     iou_threshold: float = DEFAULT_IOU_THRESHOLD,
     show_compliant: bool = True
 ):
     """
-    Detect hazards in multiple images and generate aggregate assessment
+    Detect PPE in multiple images and generate aggregate compliance assessment
     """
     try:
         import base64
         all_detections = []
         processed_results = []
+        all_compliance = []
 
         for file in files:
             contents = await file.read()
             pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
 
             dets = detector.detect(pil_img, conf_threshold=conf_threshold, iou_threshold=iou_threshold)
+            compliance = calculate_ppe_compliance(dets)
             img_eval = risk_engine.assess_batch(dets)
             items_to_draw = img_eval["all_items"] if show_compliant else img_eval["hazards"]
             annotated_img = annotate_image(pil_img, items_to_draw)
@@ -170,17 +180,22 @@ async def detect_batch(
             processed_results.append({
                 "filename": file.filename,
                 "annotated_image": f"data:image/png;base64,{img_base64}",
+                "ppe_compliance": compliance,
                 "evaluation": img_eval
             })
 
             all_detections.extend(dets)
+            all_compliance.append(compliance)
 
-        # Aggregate assessment
+        # Aggregate compliance assessment
+        avg_compliance = sum(c["compliance_rate"] for c in all_compliance) / len(all_compliance) if all_compliance else 0
         site_assessment = risk_engine.assess_batch(all_detections)
+        site_assessment["average_ppe_compliance"] = round(avg_compliance, 1)
 
         return {
             "results": processed_results,
             "site_assessment": site_assessment,
+            "average_compliance": round(avg_compliance, 1),
             "total_images": len(files),
             "success": True
         }
@@ -191,7 +206,7 @@ async def detect_batch(
 @app.post("/generate-report")
 async def generate_report(request: ReportRequest):
     """
-    Generate HTML or PDF safety audit report
+    Generate HTML or PDF PPE compliance audit report
     """
     try:
         if request.report_format == "html":
@@ -219,7 +234,7 @@ async def generate_report(request: ReportRequest):
             return {
                 "format": "pdf",
                 "content": pdf_bytes.hex(),  # Convert bytes to hex string for JSON
-                "filename": f"Safety_Audit_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                "filename": f"PPE_Compliance_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                 "success": True
             }
         else:
@@ -232,7 +247,7 @@ async def generate_report(request: ReportRequest):
 @app.post("/upload-weights")
 async def upload_custom_weights(file: UploadFile = File(...)):
     """
-    Upload custom YOLOv8 weights (.pt file)
+    Upload custom YOLOv8 weights (.pt file) for PPE detection
     """
     try:
         if not file.filename.endswith(".pt"):
@@ -249,10 +264,19 @@ async def upload_custom_weights(file: UploadFile = File(...)):
             "success": True,
             "filename": file.filename,
             "path": str(target_path),
-            "message": f"Weights uploaded successfully. Please restart the backend to load new model."
+            "message": f"Weights uploaded successfully. Please restart the backend to load new PPE model."
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/ppe-standards")
+async def get_ppe_standards():
+    """Get PPE standards and requirements"""
+    return {
+        "ppe_items": PPE_KNOWLEDGE_BASE,
+        "success": True
+    }
 
 
 if __name__ == "__main__":

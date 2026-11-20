@@ -1,7 +1,7 @@
 """
-Object Detection Engine for Construction Site Hazards.
-Supports trained YOLOv8 models (.pt weights) via Ultralytics,
-with automatic fallback to simulation/demo mode for development and testing.
+PPE (Personal Protective Equipment) Detection Engine for Construction Sites.
+Supports trained YOLOv8 models (.pt weights) via Ultralytics.
+Focuses exclusively on detecting the presence or absence of safety equipment.
 """
 
 import os
@@ -18,7 +18,9 @@ except ImportError:
     ULTRALYTICS_AVAILABLE = False
 
 
-class HazardDetector:
+class PPEDetector:
+    """Detects Personal Protective Equipment (PPE) on construction workers."""
+    
     def __init__(self, model_path: Union[str, Path] = None):
         self.model_path = Path(model_path) if model_path else None
         self.model = None
@@ -44,16 +46,17 @@ class HazardDetector:
                 self.status_message = f"Failed to load weights at {self.model_path}: {e}. Falling back to demo mode."
                 self.model = None
         else:
-            self.status_message = f"No trained weights found at '{self.model_path}'. Running in Demo Mode with simulated construction hazards."
+            self.status_message = f"No trained weights found at '{self.model_path}'. Running in Demo Mode with simulated PPE detections."
 
     def is_ready(self) -> bool:
         return self.model is not None
 
-    def detect(self, image: Union[Image.Image, np.ndarray], conf_threshold: float = 0.35, iou_threshold: float = 0.45) -> List[Dict[str, Any]]:
+    def detect(self, image: Union[Image.Image, np.ndarray], conf_threshold: float = 0.30, iou_threshold: float = 0.45) -> List[Dict[str, Any]]:
         """
-        Run inference on the image and return detected hazards.
+        Run inference on the image and return detected PPE items.
+        
         Returns:
-            List of dicts: [{'label': str, 'confidence': float, 'bbox': [x1, y1, x2, y2]}]
+            List of dicts: [{'label': str, 'confidence': float, 'bbox': [x1, y1, x2, y2], 'type': 'ppe_item' or 'worker'}]
         """
         if self.is_ready():
             return self._detect_with_yolo(image, conf_threshold, iou_threshold)
@@ -61,7 +64,7 @@ class HazardDetector:
             return self._detect_mock(image, conf_threshold)
 
     def _detect_with_yolo(self, image: Union[Image.Image, np.ndarray], conf: float, iou: float) -> List[Dict[str, Any]]:
-        """Runs actual YOLO inference."""
+        """Runs actual YOLO inference for PPE detection."""
         # Convert PIL to RGB if needed
         if isinstance(image, Image.Image):
             image = image.convert("RGB")
@@ -80,22 +83,32 @@ class HazardDetector:
             if boxes is not None and len(boxes) > 0:
                 for box in boxes:
                     cls_id = int(box.cls[0].item())
-                    label = self.model.names.get(cls_id, f"hazard_{cls_id}")
+                    label = self.model.names.get(cls_id, f"ppe_{cls_id}")
                     confidence = float(box.conf[0].item())
                     coords = box.xyxy[0].tolist()  # [x1, y1, x2, y2]
+                    
+                    # Classify as PPE item or worker
+                    ppe_type = self._classify_ppe_type(label)
                     
                     detections.append({
                         "label": label,
                         "confidence": round(confidence, 4),
-                        "bbox": [round(c, 1) for c in coords]
+                        "bbox": [round(c, 1) for c in coords],
+                        "type": ppe_type
                     })
         return detections
 
+    def _classify_ppe_type(self, label: str) -> str:
+        """Classify detection as PPE item or worker."""
+        worker_labels = ["person", "worker"]
+        if any(worker in label.lower() for worker in worker_labels):
+            return "worker"
+        return "ppe_item"
+
     def _detect_mock(self, image: Union[Image.Image, np.ndarray], conf: float) -> List[Dict[str, Any]]:
         """
-        Simulation mode: Returns representative hazards on the image
-        so the system, risk matrix, and PDF reports can be demonstrated
-        even before the user copies their custom best.pt weights.
+        Simulation mode: Returns representative PPE detections on the image
+        for demonstration before custom weights are loaded.
         """
         if isinstance(image, Image.Image):
             w, h = image.size
@@ -104,29 +117,39 @@ class HazardDetector:
         else:
             w, h = 800, 600
 
-        # Generate sample plausible construction site detections
-        simulated_hazards = [
+        # Generate sample plausible PPE detections
+        simulated_ppe = [
             {
-                "label": "no_helmet",
+                "label": "helmet",
+                "confidence": 0.92,
+                "bbox": [int(w * 0.35), int(h * 0.12), int(w * 0.50), int(h * 0.25)],
+                "type": "ppe_item"
+            },
+            {
+                "label": "vest",
                 "confidence": 0.88,
-                "bbox": [int(w * 0.35), int(h * 0.15), int(w * 0.50), int(h * 0.32)]
+                "bbox": [int(w * 0.32), int(h * 0.28), int(w * 0.55), int(h * 0.58)],
+                "type": "ppe_item"
             },
             {
-                "label": "no_vest",
-                "confidence": 0.82,
-                "bbox": [int(w * 0.32), int(h * 0.30), int(w * 0.55), int(h * 0.60)]
+                "label": "gloves",
+                "confidence": 0.85,
+                "bbox": [int(w * 0.28), int(h * 0.52), int(w * 0.38), int(h * 0.62)],
+                "type": "ppe_item"
             },
             {
-                "label": "missing_guardrail",
-                "confidence": 0.74,
-                "bbox": [int(w * 0.65), int(h * 0.40), int(w * 0.95), int(h * 0.75)]
+                "label": "boots",
+                "confidence": 0.80,
+                "bbox": [int(w * 0.38), int(h * 0.75), int(w * 0.52), int(h * 0.92)],
+                "type": "ppe_item"
             },
             {
-                "label": "unsafe_ladder",
-                "confidence": 0.69,
-                "bbox": [int(w * 0.08), int(h * 0.45), int(w * 0.28), int(h * 0.90)]
+                "label": "goggles",
+                "confidence": 0.75,
+                "bbox": [int(w * 0.40), int(h * 0.15), int(w * 0.48), int(h * 0.22)],
+                "type": "ppe_item"
             }
         ]
 
         # Filter by requested confidence threshold
-        return [h for h in simulated_hazards if h["confidence"] >= conf]
+        return [p for p in simulated_ppe if p["confidence"] >= conf]

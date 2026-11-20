@@ -1,6 +1,6 @@
-# 🏗️ Construction Safety AI - React + FastAPI Application
+# 🏗️ Construction Safety AI - PPE Detection System
 
-**AI-Powered Hazard Detection & 5×5 Risk Assessment**
+**AI-Powered PPE (Personal Protective Equipment) Identification & Compliance**
 
 **Department of Computer Science — BSc (Hons) Final Year Project**  
 *Student:* **Serghei Coceban**  
@@ -35,11 +35,11 @@ Navigate to: **http://localhost:3000**
 
 ## 🏗️ Application Overview
 
-This system provides automated construction safety analysis by:
-1. **Uploading** site photographs
-2. **Detecting** hazards with YOLOv8 deep learning
-3. **Assessing** risk using a 5×5 Likelihood × Severity matrix (OSHA compliant)
-4. **Generating** downloadable safety audit reports (HTML/PDF)
+This system provides automated PPE compliance analysis by:
+1. **Uploading** construction site photographs
+2. **Detecting** PPE items (helmet, vest, gloves, boots, goggles) with YOLOv8 deep learning
+3. **Assessing** compliance status and identifying missing PPE
+4. **Generating** downloadable compliance audit reports (HTML/PDF)
 
 ### Architecture
 ```
@@ -47,7 +47,7 @@ React Frontend (Port 3000)
         ↓↑ REST API (HTTP)
 FastAPI Backend (Port 8000)
         ↓
-YOLOv8 Detection + Risk Engine
+YOLOv8 Detection + PPE Compliance Engine
 ```
 
 ---
