@@ -1,5 +1,6 @@
 import io
 import base64
+import json
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +44,16 @@ class DetectionIntegrationTests(unittest.TestCase):
         self.assertIsNone(result["compliance_rate"])
         self.assertEqual(result["missing_items"], [])
         self.assertIsNone(calculate_ppe_compliance([])["compliance_rate"])
+
+    def test_generic_ppe_information_does_not_assert_universal_requirements(self):
+        response = self.client.get("/ppe-standards")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["ppe_items"]["helmet"]["is_required"])
+        evaluation = RiskAssessmentEngine().evaluate_ppe_item(
+            {"label": "helmet", "confidence": 0.9, "bbox": [1, 1, 20, 20]}
+        )
+        self.assertIsNone(evaluation["is_required"])
+        self.assertIsNone(evaluation["standard_ref"])
 
     def test_model_unavailable_does_not_return_simulated_detections(self):
         model = PPEDetector.__new__(PPEDetector)
@@ -112,6 +123,47 @@ class DetectionIntegrationTests(unittest.TestCase):
         content = response.json()["content"]
         self.assertIn("no_helmet", content)
         self.assertIn("do not establish PPE compliance", content)
+
+    def test_site_context_is_used_for_single_and_batch_images(self):
+        detections = [
+            {"label": "Person", "confidence": 0.9, "bbox": [0, 0, 100, 80], "type": "worker"},
+            {"label": "no_helmet", "confidence": 0.9, "bbox": [20, 2, 60, 25], "type": "missing_ppe"},
+        ]
+        context = json.dumps({"jurisdiction": "great_britain", "requirements": ["helmet"], "requirement_source": "site_rule"})
+        with patch.object(detector, "detect", return_value=detections):
+            single = self.client.post(
+                "/detect", files={"file": ("image.png", image_bytes(), "image/png")}, data={"site_context": context},
+            )
+            batch = self.client.post(
+                "/detect-batch", files=[("files", ("image.png", image_bytes(), "image/png"))],
+                data={"site_context": context},
+            )
+        self.assertEqual(single.status_code, 200, single.text)
+        self.assertEqual(batch.status_code, 200, batch.text)
+        self.assertEqual(single.json()["legal_assessment"]["status"], "POTENTIAL NON-COMPLIANCE")
+        self.assertEqual(batch.json()["results"][0]["legal_assessment"]["status"], "POTENTIAL NON-COMPLIANCE")
+
+    def test_invalid_site_context_is_rejected(self):
+        response = self.client.post(
+            "/detect", files={"file": ("image.png", image_bytes(), "image/png")},
+            data={"site_context": '{"jurisdiction":"made_up"}'},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_batch_worker_assessments_are_not_mixed_between_images(self):
+        worker = {"label": "Person", "confidence": 0.9, "bbox": [0, 0, 100, 80], "type": "worker"}
+        missing = {"label": "no_helmet", "confidence": 0.9, "bbox": [20, 2, 60, 25], "type": "missing_ppe"}
+        context = json.dumps({"requirements": ["helmet"]})
+        with patch.object(detector, "detect", side_effect=[[worker, missing], [worker]]):
+            response = self.client.post(
+                "/detect-batch",
+                files=[("files", ("first.png", image_bytes(), "image/png")),
+                       ("files", ("second.png", image_bytes(), "image/png"))],
+                data={"site_context": context},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        statuses = [result["legal_assessment"]["status"] for result in response.json()["results"]]
+        self.assertEqual(statuses, ["POTENTIAL NON-COMPLIANCE", "REVIEW REQUIRED"])
 
 
 if __name__ == "__main__":

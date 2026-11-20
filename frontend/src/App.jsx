@@ -6,9 +6,26 @@ import { KPICard } from './components/KPICard';
 import { DetectionResults } from './components/DetectionResults';
 import { HazardRegister } from './components/HazardRegister';
 import { ReportGenerator } from './components/ReportGenerator';
+import { SiteProfile, EMPTY_PROFILE } from './components/SiteProfile';
+import { LegalAssessment } from './components/LegalAssessment';
 import './App.css';
 
 const API_BASE = '/api';
+const PROFILE_KEY = 'construction-safety-site-profile-v1';
+
+function loadSiteProfile() {
+  try {
+    const saved = localStorage.getItem(PROFILE_KEY);
+    if (!saved) return { profile: EMPTY_PROFILE, error: '' };
+    const profile = JSON.parse(saved);
+    if (!profile || !Array.isArray(profile.hazards) || !Array.isArray(profile.requirements)) {
+      throw new Error('Invalid saved profile');
+    }
+    return { profile: { ...EMPTY_PROFILE, ...profile }, error: '' };
+  } catch {
+    return { profile: EMPTY_PROFILE, error: 'Could not load the saved site profile. Check browser storage.' };
+  }
+}
 
 function App() {
   const [config, setConfig] = useState({
@@ -32,6 +49,8 @@ function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [hazardFilterMode, setHazardFilterMode] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [storedProfile, setStoredProfile] = useState(loadSiteProfile);
+  const siteProfile = storedProfile.profile;
 
   // Load system config on mount
   useEffect(() => {
@@ -59,6 +78,18 @@ function App() {
     setResults(null);
     setSiteAssessment(null);
     setErrorMessage('');
+  };
+
+  const handleProfileChange = (profile) => {
+    let error = '';
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    } catch {
+      error = 'Could not save the site profile in this browser. The current values are temporary.';
+    }
+    setStoredProfile({ profile, error });
+    setResults(null);
+    setSiteAssessment(null);
   };
 
   const handleProcessImages = async () => {
@@ -90,6 +121,7 @@ function App() {
       formData.append('conf_threshold', config.conf_threshold);
       formData.append('iou_threshold', config.iou_threshold);
       formData.append('show_compliant', config.show_compliant);
+      formData.append('site_context', JSON.stringify(siteProfile));
 
       const endpoint = selectedImages.length > 1 ? '/detect-batch' : '/detect';
       const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -147,6 +179,7 @@ function App() {
             onImagesSelected={handleImagesSelected}
             isProcessing={isProcessing}
           />
+          <SiteProfile profile={siteProfile} onChange={handleProfileChange} disabled={isProcessing} storageError={storedProfile.error} />
 
           <button
             onClick={handleProcessImages}
@@ -175,13 +208,15 @@ function App() {
                 <KPICard title="Detections" value={siteAssessment.total_detections} color="#0066cc" />
                 <KPICard title="PPE detections" value={siteAssessment.total_ppe_items} color="#28a745" />
                 <KPICard title="People detected" value={siteAssessment.total_workers} color="#0066cc" />
-                <KPICard title="Compliance" value="Not assessed" color="#64748b" />
+                <KPICard title="Potential findings" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).flatMap((worker) => worker.findings).filter((finding) => finding.status === 'POTENTIAL NON-COMPLIANCE').length, 0)} color="#b45309" />
+                <KPICard title="Workers for review" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).filter((worker) => worker.status === 'REVIEW REQUIRED').length, 0)} color="#64748b" />
+                <KPICard title="Not assessable" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).filter((worker) => worker.status === 'NOT ASSESSABLE').length, 0)} color="#64748b" />
               </div>
 
               {/* Tabs */}
               <div style={styles.tabsContainer}>
                 <div style={styles.tabsList}>
-                  {['🖼️ Visual Detection', '📊 5×5 Risk Matrix', '📋 Hazard Register', '📄 Report Generator'].map(
+                  {['🖼️ Visual Detection', '📊 5×5 Risk Matrix', '📋 Hazard Register', '📄 Report Generator', '⚖️ UK assessment'].map(
                     (tab, idx) => (
                       <button
                         key={idx}
@@ -232,6 +267,7 @@ function App() {
                   {activeTab === 3 && (
                     <ReportGenerator assessment={siteAssessment} auditMetadata={config} />
                   )}
+                  {activeTab === 4 && <LegalAssessment results={results} />}
                 </div>
               </div>
             </>

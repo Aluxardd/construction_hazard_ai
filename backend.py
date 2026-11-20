@@ -6,8 +6,8 @@ Serves detection, compliance assessment, and report generation APIs
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, ValidationError
+from typing import List, Optional, Dict, Any, Literal
 import io
 import json
 import base64
@@ -30,6 +30,7 @@ from config import (
 )
 from core.detector import PPEDetector, ULTRALYTICS_AVAILABLE
 from core.risk_engine import RiskAssessmentEngine
+from core.legal_assessment import assess_image
 from core.visualizer import annotate_image, generate_risk_matrix_plot
 from core.report_generator import generate_pdf_report, generate_html_report, REPORTLAB_AVAILABLE
 
@@ -59,6 +60,24 @@ class DetectionRequest(BaseModel):
     conf_threshold: float = DEFAULT_CONFIDENCE
     iou_threshold: float = DEFAULT_IOU_THRESHOLD
     show_compliant: bool = True
+
+
+class SiteContext(BaseModel):
+    jurisdiction: Literal["unknown", "great_britain", "northern_ireland"] = "unknown"
+    activity: Literal["unknown", "construction", "other"] = "unknown"
+    work_area: str = Field(default="", max_length=500)
+    hazards: List[Literal["height", "substances", "noise"]] = Field(default_factory=list)
+    requirements: List[Literal["helmet", "vest", "gloves", "boots", "goggles", "respirator", "hearing_protection", "fall_protection"]] = Field(default_factory=list)
+    requirement_source: Literal["site_rule", "risk_assessment", "construction_phase_plan"] = "site_rule"
+    notes: str = Field(default="", max_length=2000)
+
+
+def parse_site_context(value: str) -> dict:
+    try:
+        context = SiteContext(**json.loads(value))
+        return context.model_dump() if hasattr(context, "model_dump") else context.dict()
+    except (ValueError, TypeError, ValidationError):
+        raise HTTPException(status_code=422, detail="Invalid site assessment context.")
 
 
 class AuditMetadata(BaseModel):
@@ -108,17 +127,18 @@ async def detect_ppe(
     file: UploadFile = File(...),
     conf_threshold: float = Form(DEFAULT_CONFIDENCE, ge=0, le=1),
     iou_threshold: float = Form(DEFAULT_IOU_THRESHOLD, ge=0, le=1),
-    show_compliant: bool = Form(True)
+    show_compliant: bool = Form(True),
+    site_context: str = Form("{}")
 ):
     """
     Detect PPE items in a single image
     Returns: detections, compliance score, annotated image
     """
-    result = await process_image(file, conf_threshold, iou_threshold, show_compliant)
+    result = await process_image(file, conf_threshold, iou_threshold, show_compliant, parse_site_context(site_context))
     return {**result, "success": True}
 
 
-async def process_image(file, conf_threshold, iou_threshold, show_compliant):
+async def process_image(file, conf_threshold, iou_threshold, show_compliant, site_context):
     if not detector.is_ready():
         raise HTTPException(status_code=503, detail="Detection model is unavailable. Check backend logs and model weights.")
     try:
@@ -150,6 +170,7 @@ async def process_image(file, conf_threshold, iou_threshold, show_compliant):
             "detections": dets,
             "ppe_compliance": calculate_ppe_compliance(dets),
             "evaluation": evaluation,
+            "legal_assessment": assess_image(dets, site_context, detector.class_names),
             "annotated_image": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(),
         }
     except Exception:
@@ -167,15 +188,17 @@ async def detect_batch_ppe(
     files: List[UploadFile] = File(...),
     conf_threshold: float = Form(DEFAULT_CONFIDENCE, ge=0, le=1),
     iou_threshold: float = Form(DEFAULT_IOU_THRESHOLD, ge=0, le=1),
-    show_compliant: bool = Form(True)
+    show_compliant: bool = Form(True),
+    site_context: str = Form("{}")
 ):
     """
     Detect PPE in multiple images and generate aggregate compliance assessment
     """
     processed_results = []
     all_detections = []
+    context = parse_site_context(site_context)
     for file in files:
-        result = await process_image(file, conf_threshold, iou_threshold, show_compliant)
+        result = await process_image(file, conf_threshold, iou_threshold, show_compliant, context)
         processed_results.append(result)
         all_detections.extend(result["detections"])
 
@@ -259,7 +282,17 @@ async def upload_custom_weights(file: UploadFile = File(...)):
 async def get_ppe_standards():
     """Get PPE standards and requirements"""
     return {
-        "ppe_items": PPE_KNOWLEDGE_BASE,
+        "ppe_items": {
+            key: {
+                "title": item["title"],
+                "category": item["category"],
+                "description": item["description"],
+                "is_required": None,
+                "standard_ref": None,
+            }
+            for key, item in PPE_KNOWLEDGE_BASE.items()
+        },
+        "notice": "PPE requirements depend on the work, risks, jurisdiction and site context.",
         "success": True
     }
 

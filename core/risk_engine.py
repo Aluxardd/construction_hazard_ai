@@ -68,11 +68,11 @@ class RiskAssessmentEngine:
                 "bbox": bbox,
                 "title": rule["title"],
                 "category": rule["category"],
-                "standard_ref": rule["standard_ref"],
+                "standard_ref": None,
                 "description": rule["description"],
-                "compliance_weight": rule["compliance_weight"],
-                "is_required": rule["is_required"],
-                "recommendation": rule["recommendation"],
+                "compliance_weight": None,
+                "is_required": None,
+                "recommendation": "Verify suitability and requirements against the applicable risk assessment.",
                 "color": "#28a745",  # Green for detected PPE
                 "text_color": "#ffffff"
             }
