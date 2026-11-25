@@ -8,79 +8,92 @@ export const DetectionResults = ({ results }) => {
       <h2 style={styles.header}>Detection Results</h2>
 
       {results.map((result, idx) => (
-        <div key={idx} style={styles.resultCard}>
-          <div style={styles.resultHeader}>
+        <div key={`${result.filename || 'image'}-${idx}`} style={styles.resultCard}>
+          <div className="two-col-grid" style={styles.resultHeader}>
             <span>
               <strong>Image:</strong> <code>{result.filename}</code>
             </span>
-            <span>
-              Detections: <strong>{result.detections?.length ?? 0}</strong>
-              {result.image_size && <> | Image: {result.image_size.join(' × ')} px</>}
-              {result.inference_ms != null && <> | Inference: {result.inference_ms} ms</>}
-            </span>
+            {!result.error && (
+              <span>
+                Detections: <strong>{result.detections?.length ?? 0}</strong>
+                {result.image_size && <> | Image: {result.image_size.join(' × ')} px</>}
+                {result.inference_ms != null && <> | Inference: {result.inference_ms} ms</>}
+              </span>
+            )}
           </div>
 
-          {/* Compliance Status */}
-          {result.ppe_compliance && (
-            <div style={styles.compliancePanel}>
-              <div style={styles.complianceHeader}>
-                <span style={{
-                  color: '#fff',
-                  backgroundColor: result.ppe_compliance.status.color,
-                  padding: '6px 12px',
-                  borderRadius: '4px',
-                  fontWeight: '600',
-                  fontSize: '12px'
-                }}>
-                  {result.ppe_compliance.status.level}
-                </span>
-                <span style={styles.complianceMessage}>{result.ppe_compliance.status.message}</span>
-              </div>
-              
-              <div style={styles.ppeGrid}>
-                <div style={styles.ppeColumn}>
-                  <strong style={styles.ppeLabel}>✓ Detected PPE:</strong>
-                  <ul style={styles.ppeList}>
-                    {result.ppe_compliance.detected_items?.length > 0 ? (
-                      result.ppe_compliance.detected_items.map((item) => (
-                        <li key={item} style={styles.ppeItem}>
-                          <span style={styles.checkmark}>✓</span> {item.charAt(0).toUpperCase() + item.slice(1)}
-                        </li>
-                      ))
+          {result.error ? (
+            <div role="alert" style={styles.errorBox}>
+              Could not process this image: {result.error}
+            </div>
+          ) : (
+            <>
+              {result.ppe_compliance && (
+                <div style={styles.compliancePanel}>
+                  <div style={styles.complianceHeader}>
+                    <span
+                      style={{
+                        color: '#fff',
+                        backgroundColor: result.ppe_compliance.status.color,
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        fontWeight: '600',
+                        fontSize: '12px',
+                      }}
+                    >
+                      {result.ppe_compliance.status.level}
+                    </span>
+                    <span style={styles.complianceMessage}>{result.ppe_compliance.status.message}</span>
+                  </div>
+
+                  <div style={styles.ppeGrid}>
+                    <div style={styles.ppeColumn}>
+                      <strong style={styles.ppeLabel}>✓ Detected PPE:</strong>
+                      <ul style={styles.ppeList}>
+                        {result.ppe_compliance.detected_items?.length > 0 ? (
+                          result.ppe_compliance.detected_items.map((item) => (
+                            <li key={item} style={styles.ppeItem}>
+                              <span style={styles.checkmark}>✓</span> {item.charAt(0).toUpperCase() + item.slice(1)}
+                            </li>
+                          ))
+                        ) : (
+                          <li style={styles.ppeItem}>None detected</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div>
+                    <strong>Model detections</strong>
+                    {result.detections?.length ? (
+                      <ul>
+                        {result.detections.map((detection, index) => (
+                          <li key={index}>
+                            {detection.label}: {(detection.confidence * 100).toFixed(1)}% — xyxy [{detection.bbox.join(', ')}]
+                          </li>
+                        ))}
+                      </ul>
                     ) : (
-                      <li style={styles.ppeItem}>None detected</li>
+                      <p>No objects detected at the selected threshold.</p>
                     )}
-                  </ul>
+                  </div>
                 </div>
-                
-              </div>
-              <div>
-                <strong>Model detections</strong>
-                {result.detections?.length ? (
-                  <ul>
-                    {result.detections.map((detection, index) => (
-                      <li key={index}>
-                        {detection.label}: {(detection.confidence * 100).toFixed(1)}% — xyxy [{detection.bbox.join(', ')}]
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p>No objects detected at the selected threshold.</p>}
-              </div>
-            </div>
-          )}
-
-          <div style={styles.imageGrid}>
-            <div style={styles.imageColumn}>
-              <p style={styles.imageCaption}>Annotated Detection</p>
-              {result.annotated_image && (
-                <img
-                  src={result.annotated_image}
-                  alt={result.filename}
-                  style={styles.image}
-                />
               )}
-            </div>
-          </div>
+
+              <div style={styles.imageGrid}>
+                <div style={styles.imageColumn}>
+                  <p style={styles.imageCaption}>Annotated Detection</p>
+                  {result.annotated_image && (
+                    <img
+                      src={result.annotated_image}
+                      alt={`Annotated detections for ${result.filename || 'uploaded image'}`}
+                      style={styles.image}
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
 
           <hr style={styles.divider} />
         </div>
@@ -97,6 +110,7 @@ const styles = {
     fontSize: '18px',
     fontWeight: '600',
     marginBottom: '15px',
+    marginTop: 0,
     color: '#1E293B',
   },
   resultCard: {
@@ -107,12 +121,17 @@ const styles = {
     marginBottom: '20px',
   },
   resultHeader: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '20px',
     marginBottom: '15px',
     fontSize: '14px',
     color: '#475569',
+  },
+  errorBox: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#991b1b',
+    padding: '12px',
+    borderRadius: '6px',
+    fontSize: '14px',
   },
   compliancePanel: {
     backgroundColor: '#F8F9FA',
@@ -123,6 +142,7 @@ const styles = {
   },
   complianceHeader: {
     display: 'flex',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: '10px',
     marginBottom: '10px',
@@ -180,16 +200,6 @@ const styles = {
   image: {
     maxWidth: '100%',
     height: 'auto',
-    borderRadius: '4px',
-    border: '1px solid #E2E8F0',
-  },
-  imagePlaceholder: {
-    backgroundColor: '#F1F5F9',
-    height: '400px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#94A3B8',
     borderRadius: '4px',
     border: '1px solid #E2E8F0',
   },

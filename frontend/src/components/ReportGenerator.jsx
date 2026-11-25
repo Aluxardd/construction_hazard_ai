@@ -1,46 +1,9 @@
 import React, { useState } from 'react';
 
-export const ReportGenerator = ({ assessment, auditMetadata }) => {
+export const ReportGenerator = ({ assessment, results = null, auditMetadata }) => {
   const [loading, setLoading] = useState(false);
-
-  const handleGenerateReport = async (format) => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/generate-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          site_assessment: assessment,
-          audit_metadata: auditMetadata,
-          report_format: format,
-        }),
-      });
-
-      if (!response.ok) throw new Error('Report generation failed');
-
-      const data = await response.json();
-
-      if (format === 'html') {
-        // Open in new window
-        const htmlWindow = window.open();
-        htmlWindow.document.write(data.content);
-        htmlWindow.document.close();
-
-        // Also offer download
-        const blob = new Blob([data.content], { type: 'text/html' });
-        downloadFile(blob, `Safety_Report_${new Date().toISOString().split('T')[0]}.html`);
-      } else if (format === 'pdf') {
-        // Convert hex back to bytes
-        const bytes = new Uint8Array(data.content.match(/.{1,2}/g).map((x) => parseInt(x, 16)));
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        downloadFile(blob, data.filename);
-      }
-    } catch (error) {
-      alert(`Error: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [errorMessage, setErrorMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
 
   const downloadFile = (blob, filename) => {
     const url = URL.createObjectURL(blob);
@@ -53,31 +16,85 @@ export const ReportGenerator = ({ assessment, auditMetadata }) => {
     URL.revokeObjectURL(url);
   };
 
+  const handleGenerateReport = async (format) => {
+    setLoading(true);
+    setErrorMessage('');
+    setStatusMessage('');
+    try {
+      const response = await fetch('/api/generate-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_assessment: assessment,
+          audit_metadata: {
+            site_name: auditMetadata.site_name,
+            inspector_name: auditMetadata.inspector_name,
+            inspection_date: auditMetadata.inspection_date,
+          },
+          report_format: format,
+          results,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(typeof errorData?.detail === 'string' ? errorData.detail : 'Report generation failed.');
+      }
+
+      const data = await response.json();
+
+      if (format === 'html') {
+        const blob = new Blob([data.content], { type: 'text/html' });
+        const filename = data.filename || `Safety_Report_${new Date().toISOString().split('T')[0]}.html`;
+        downloadFile(blob, filename);
+        setStatusMessage(`Downloaded ${filename}`);
+      } else if (format === 'pdf') {
+        const hexPairs = data.content ? data.content.match(/.{1,2}/g) : null;
+        if (!hexPairs) {
+          throw new Error('Received empty PDF payload from server.');
+        }
+        const bytes = new Uint8Array(hexPairs.map((x) => parseInt(x, 16)));
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        downloadFile(blob, data.filename || 'PPE_Compliance_Report.pdf');
+        setStatusMessage(`Downloaded ${data.filename || 'PPE_Compliance_Report.pdf'}`);
+      }
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={styles.container}>
-      <h2 style={styles.header}>📄 Downloadable Detection Summary</h2>
+      <h2 style={styles.header}>📄 Downloadable Detection &amp; Review Summary</h2>
       <p style={styles.description}>
+        Includes audit metadata, per-image legislation-informed worker findings, and raw model detections.
         Detections require human review and do not establish compliance or site safety.
       </p>
 
-      <div style={styles.buttonGrid}>
+      <div className="two-col-grid">
         <button
+          type="button"
           onClick={() => handleGenerateReport('html')}
           disabled={loading}
           style={{ ...styles.button, ...styles.buttonPrimary }}
         >
-          📥 Download HTML Detection Summary
+          📥 Download HTML Summary
         </button>
         <button
+          type="button"
           onClick={() => handleGenerateReport('pdf')}
           disabled={loading}
           style={{ ...styles.button, ...styles.buttonSecondary }}
         >
-          📄 Download PDF Detection Summary
+          📄 Download PDF Summary
         </button>
       </div>
 
       {loading && <p style={styles.loading}>Generating report...</p>}
+      {statusMessage && <p role="status" style={styles.success}>{statusMessage}</p>}
+      {errorMessage && <p role="alert" style={styles.error}>{errorMessage}</p>}
     </div>
   );
 };
@@ -90,17 +107,13 @@ const styles = {
     fontSize: '18px',
     fontWeight: '600',
     marginBottom: '10px',
+    marginTop: 0,
     color: '#1E293B',
   },
   description: {
     color: '#64748B',
     marginBottom: '15px',
     fontSize: '14px',
-  },
-  buttonGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '15px',
   },
   button: {
     padding: '12px 20px',
@@ -109,7 +122,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: '500',
     fontSize: '14px',
-    transition: 'all 0.3s ease',
+    transition: 'all 0.2s ease',
   },
   buttonPrimary: {
     backgroundColor: '#0066cc',
@@ -123,5 +136,15 @@ const styles = {
     marginTop: '15px',
     color: '#0066cc',
     textAlign: 'center',
+  },
+  success: {
+    marginTop: '12px',
+    color: '#155724',
+    fontSize: '14px',
+  },
+  error: {
+    marginTop: '12px',
+    color: '#991b1b',
+    fontSize: '14px',
   },
 };

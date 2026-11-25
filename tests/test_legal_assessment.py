@@ -102,6 +102,14 @@ class LegalAssessmentTests(unittest.TestCase):
         self.assertNotIn("noise-2005-6", [r["id"] for r in no_context["references"]])
         self.assertIn("noise-2005-6", [r["id"] for r in with_context["references"]])
 
+    def test_synonym_labels_are_normalized_for_legal_assessment(self):
+        result = assess_image(
+            [detection("worker", [0, 0, 100, 200]), detection("no_goggles", [25, 10, 70, 50])],
+            {"requirements": ["goggles"]},
+            ["worker", "safety_glasses", "no_goggles"],
+        )
+        self.assertEqual(result["workers"][0]["findings"][0]["status"], "POTENTIAL NON-COMPLIANCE")
+
 
 if __name__ == "__main__":
     unittest.main()

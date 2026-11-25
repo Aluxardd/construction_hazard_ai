@@ -1,13 +1,30 @@
 import React from 'react';
 
-export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
-  if (!assessment) return null;
+const isFlaggedItem = (item) =>
+  item.normalized_key?.startsWith('no_') || item.normalized_key === 'forklift';
 
-  const items = showHazardsOnly
-    ? assessment.all_items?.filter((item) => item.normalized_key?.startsWith('no_'))
-    : assessment.all_items;
+const getStatusLabel = (item) => {
+  if (item.normalized_key?.startsWith('no_')) return 'Review model flag';
+  if (item.normalized_key === 'forklift') return 'Review plant hazard';
+  return 'Detected';
+};
 
-  if (!items || items.length === 0) {
+export const HazardRegister = ({ assessment, results = null, showHazardsOnly = true }) => {
+  if (!assessment && (!results || results.length === 0)) return null;
+
+  const rawRows = results && results.length > 0
+    ? results.flatMap((result) =>
+        (result.evaluation?.all_items || []).map((item) => ({
+          ...item,
+          _filename: result.filename || 'Image',
+        })),
+      )
+    : (assessment?.all_items || []).map((item) => ({ ...item, _filename: null }));
+
+  const items = showHazardsOnly ? rawRows.filter(isFlaggedItem) : rawRows;
+  const showImageColumn = Boolean(results && results.length > 0);
+
+  if (items.length === 0) {
     return (
       <div style={styles.container}>
         <p style={styles.empty}>No items match the selected filter.</p>
@@ -21,6 +38,7 @@ export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
         <table style={styles.table}>
           <thead>
             <tr style={styles.headerRow}>
+              {showImageColumn && <th style={styles.headerCell}>Image</th>}
               <th style={styles.headerCell}>Status</th>
               <th style={styles.headerCell}>Finding / Item</th>
               <th style={styles.headerCell}>Confidence</th>
@@ -31,9 +49,8 @@ export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
           <tbody>
             {items.map((item, idx) => (
               <tr key={idx} style={styles.bodyRow}>
-                <td style={styles.cell}>
-                  {item.normalized_key?.startsWith('no_') ? 'Review model flag' : 'Detected'}
-                </td>
+                {showImageColumn && <td style={styles.cell}><code>{item._filename}</code></td>}
+                <td style={styles.cell}>{getStatusLabel(item)}</td>
                 <td style={styles.cell}>{item.title}</td>
                 <td style={styles.cell}>{Math.round(item.confidence * 100)}%</td>
                 <td style={styles.cell}>{item.raw_label}</td>
@@ -45,16 +62,6 @@ export const HazardRegister = ({ assessment, showHazardsOnly = true }) => {
       </div>
     </div>
   );
-};
-
-const getRiskTierStyle = (tier) => {
-  const colors = {
-    Critical: { backgroundColor: '#dc3545', color: '#fff' },
-    High: { backgroundColor: '#fd7e14', color: '#fff' },
-    Medium: { backgroundColor: '#ffc107', color: '#212529' },
-    Low: { backgroundColor: '#28a745', color: '#fff' },
-  };
-  return colors[tier] || {};
 };
 
 const styles = {

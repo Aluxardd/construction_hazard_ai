@@ -13,6 +13,14 @@ export function LegalAssessment({ results }) {
       <p><strong>Overall visual assessment:</strong> {overall}. This is not a site-wide legal determination.</p>
       <p>Potential site-requirement flags use a 70% confidence review heuristic for both the person and explicit no-PPE prediction. This threshold is not calibrated; all findings need human review.</p>
       {results.map((result, index) => {
+        if (result.error) {
+          return (
+            <article key={index} style={styles.card}>
+              <h3>{result.filename} — Processing error</h3>
+              <p role="alert">{result.error}</p>
+            </article>
+          );
+        }
         const assessment = result.legal_assessment;
         if (!assessment) return <p key={index}>Assessment unavailable for {result.filename}.</p>;
         return (

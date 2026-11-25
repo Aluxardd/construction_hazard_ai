@@ -1,60 +1,62 @@
 #!/bin/bash
 
-# Construction Hazard AI - Full Stack Startup Script
-# This script starts both the Python FastAPI backend and React frontend
+# Construction Safety AI - Full Stack Startup Script
+# Starts both the Python FastAPI backend and React frontend.
 
 set -e
 
-echo "🏗️  Construction Safety AI - Full Stack Startup"
-echo "================================================="
+echo "Construction Safety AI - Full Stack Startup"
+echo "==========================================="
 echo ""
 
-# Check if running from correct directory
 if [ ! -f "backend.py" ]; then
-    echo "❌ Error: backend.py not found. Please run this script from the project root."
+    echo "Error: backend.py not found. Please run this script from the project root."
     exit 1
 fi
 
-# Color codes
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+PYTHON_BIN="python3"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+fi
 
-echo -e "${YELLOW}Step 1: Starting Python FastAPI Backend...${NC}"
-echo "API will run at: http://localhost:8000"
-python -m uvicorn backend:app --reload &
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "Error: python3/python not found in PATH."
+    exit 1
+fi
+
+BACKEND_PID=""
+FRONTEND_PID=""
+
+cleanup() {
+    if [ -n "$BACKEND_PID" ]; then
+        kill "$BACKEND_PID" 2>/dev/null || true
+    fi
+    if [ -n "$FRONTEND_PID" ]; then
+        kill "$FRONTEND_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
+echo "Step 1: Starting Python FastAPI Backend at http://localhost:8000 ..."
+"$PYTHON_BIN" -m uvicorn backend:app --reload &
 BACKEND_PID=$!
-sleep 3
+sleep 2
 
-echo -e "${GREEN}✓ Backend started (PID: $BACKEND_PID)${NC}"
-echo ""
-
-echo -e "${YELLOW}Step 2: Starting React Frontend...${NC}"
+echo "Step 2: Starting React Frontend at http://localhost:3000 ..."
 cd frontend
 if [ ! -d "node_modules" ]; then
-    echo "Installing dependencies..."
+    echo "Installing frontend dependencies..."
     npm install
 fi
 
-echo "Frontend will run at: http://localhost:3000"
 npm run dev &
 FRONTEND_PID=$!
-sleep 3
-
 cd ..
 
-echo -e "${GREEN}✓ Frontend started (PID: $FRONTEND_PID)${NC}"
 echo ""
-
-echo -e "${GREEN}✅ Full Stack Application Started!${NC}"
-echo ""
-echo "🌐 Open your browser and navigate to: http://localhost:3000"
-echo ""
+echo "Full Stack Application Started!"
+echo "Open your browser at: http://localhost:3000"
 echo "Press Ctrl+C to stop both services..."
 echo ""
 
-# Keep script running
 wait
-
-# Cleanup on exit
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT

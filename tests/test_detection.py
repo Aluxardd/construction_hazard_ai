@@ -165,6 +165,44 @@ class DetectionIntegrationTests(unittest.TestCase):
         statuses = [result["legal_assessment"]["status"] for result in response.json()["results"]]
         self.assertEqual(statuses, ["POTENTIAL NON-COMPLIANCE", "REVIEW REQUIRED"])
 
+    def test_batch_isolates_invalid_image_without_failing_valid_images(self):
+        with patch.object(detector, "detect", return_value=[]):
+            response = self.client.post(
+                "/detect-batch",
+                files=[
+                    ("files", ("good.png", image_bytes((60, 40)), "image/png")),
+                    ("files", ("bad.png", b"not-an-image", "image/png")),
+                ],
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["failed_images"], 1)
+        self.assertEqual(payload["results"][0]["image_size"], [60, 40])
+        self.assertIn("error", payload["results"][1])
+
+    def test_report_includes_audit_metadata_and_results(self):
+        assessment = RiskAssessmentEngine().assess_batch([
+            {"label": "no_helmet", "confidence": 0.9, "bbox": [5, 5, 30, 30]}
+        ])
+        response = self.client.post(
+            "/generate-report",
+            json={
+                "site_assessment": assessment,
+                "audit_metadata": {
+                    "site_name": "Site Alpha",
+                    "inspector_name": "Inspector Jane",
+                    "inspection_date": "2026-11-24",
+                },
+                "results": [{"filename": "site_a.png", "evaluation": assessment}],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertTrue(data["filename"].endswith(".html"))
+        self.assertIn("Inspector Jane", data["content"])
+        self.assertIn("2026-11-24", data["content"])
+        self.assertIn("site_a.png", data["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

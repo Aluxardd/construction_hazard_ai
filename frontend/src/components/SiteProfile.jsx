@@ -31,8 +31,8 @@ export function SiteProfile({ profile, onChange, disabled, storageError }) {
       <label style={styles.label}>Jurisdiction
         <select value={profile.jurisdiction} onChange={(e) => set('jurisdiction', e.target.value)} disabled={disabled}>
           <option value="unknown">Unknown</option>
-          <option value="great_britain">England, Scotland or Wales</option>
-          <option value="northern_ireland">Northern Ireland</option>
+          <option value="great_britain">England, Scotland or Wales (GB references included)</option>
+          <option value="northern_ireland">Northern Ireland (manual HSENI/NI legal review required)</option>
         </select>
       </label>
       <label style={styles.label}>Activity

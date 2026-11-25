@@ -13,6 +13,13 @@ import './App.css';
 const API_BASE = '/api';
 const PROFILE_KEY = 'construction-safety-site-profile-v1';
 
+const TABS = [
+  { id: 'visual-detection', label: '🖼️ Visual Detection' },
+  { id: 'hazard-register', label: '📋 Hazard & Object Register' },
+  { id: 'report-generator', label: '📄 Report Generator' },
+  { id: 'legal-assessment', label: '⚖️ Legal Assessment' },
+];
+
 function loadSiteProfile() {
   try {
     const saved = localStorage.getItem(PROFILE_KEY);
@@ -38,9 +45,11 @@ function App() {
     model_name: 'best.pt',
     is_custom_model: false,
     class_names: [],
+    detector_status: '',
   });
 
-  const [systemConfig, setSystemConfig] = useState(null);
+  const [configStatus, setConfigStatus] = useState('loading');
+  const [configError, setConfigError] = useState('');
   const [images, setImages] = useState([]);
   const [useSample, setUseSample] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,21 +61,29 @@ function App() {
   const [storedProfile, setStoredProfile] = useState(loadSiteProfile);
   const siteProfile = storedProfile.profile;
 
-  // Load system config on mount
   useEffect(() => {
     const loadConfig = async () => {
+      setConfigStatus('loading');
+      setConfigError('');
       try {
         const response = await fetch(`${API_BASE}/config`);
+        if (!response.ok) {
+          throw new Error(`Backend returned status ${response.status}`);
+        }
         const data = await response.json();
-        setSystemConfig(data);
         setConfig((prev) => ({
           ...prev,
-          is_custom_model: data.is_custom_model,
+          conf_threshold: data.default_confidence ?? prev.conf_threshold,
+          iou_threshold: data.default_iou_threshold ?? prev.iou_threshold,
+          model_name: data.model_name || prev.model_name,
+          is_custom_model: Boolean(data.is_custom_model),
           class_names: data.class_names || [],
-          detector_status: data.detector_status,
+          detector_status: data.detector_status || '',
         }));
+        setConfigStatus('ready');
       } catch (error) {
-        console.error('Failed to load system config:', error);
+        setConfigStatus('error');
+        setConfigError(`Could not reach backend configuration endpoint (${error.message}).`);
       }
     };
     loadConfig();
@@ -94,7 +111,7 @@ function App() {
 
   const handleProcessImages = async () => {
     if (!images.length && !useSample) {
-      alert('Please select images to process');
+      setErrorMessage('Please select at least one image or enable the sample image before analyzing.');
       return;
     }
 
@@ -110,12 +127,10 @@ function App() {
         selectedImages = [new File([await sample.blob()], 'sample_site.jpg', { type: 'image/jpeg' })];
       }
       const formData = new FormData();
-      if (selectedImages.length > 0) {
-        if (selectedImages.length > 1) {
-          selectedImages.forEach((img) => formData.append('files', img));
-        } else {
-          formData.append('file', selectedImages[0]);
-        }
+      if (selectedImages.length > 1) {
+        selectedImages.forEach((img) => formData.append('files', img));
+      } else {
+        formData.append('file', selectedImages[0]);
       }
 
       formData.append('conf_threshold', config.conf_threshold);
@@ -151,37 +166,53 @@ function App() {
     }
   };
 
+  const allWorkers = (results || []).flatMap((result) => result.legal_assessment?.workers || []);
+  const potentialFindingsCount = allWorkers
+    .flatMap((worker) => worker.findings || [])
+    .filter((finding) => finding.status === 'POTENTIAL NON-COMPLIANCE').length;
+  const reviewWorkersCount = allWorkers.filter((worker) => worker.status === 'REVIEW REQUIRED').length;
+  const notAssessableWorkersCount = allWorkers.filter((worker) => worker.status === 'NOT ASSESSABLE').length;
+
   return (
     <div style={styles.app}>
-      {/* Header */}
-      <div style={styles.header}>
+      <header style={styles.header}>
         <div style={styles.headerContent}>
           <h1 style={styles.mainTitle}>🏗️ Construction Safety AI: PPE Detection</h1>
           <p style={styles.subtitle}>
-            BSc (Hons) Computer Science Final Year Project • Serghei Coceban • University of Bolton & Regent College London
+            BSc (Hons) Computer Science Final Year Project • Serghei Coceban • University of Bolton &amp; Regent College London
           </p>
         </div>
-      </div>
+      </header>
 
-      {/* Main Layout */}
-      <div style={styles.mainLayout}>
-        {/* Sidebar */}
+      <div className="app-layout">
         <ConfigPanel
           config={config}
           onConfigChange={setConfig}
           isProcessing={isProcessing}
+          configStatus={configStatus}
+          configError={configError}
         />
 
-        {/* Main Content */}
-        <div style={styles.mainContent}>
-          {/* Upload Section */}
+        <main className="app-main">
+          {configError && (
+            <div role="alert" style={styles.errorBanner}>
+              {configError}
+            </div>
+          )}
+
           <ImageUploader
             onImagesSelected={handleImagesSelected}
             isProcessing={isProcessing}
           />
-          <SiteProfile profile={siteProfile} onChange={handleProfileChange} disabled={isProcessing} storageError={storedProfile.error} />
+          <SiteProfile
+            profile={siteProfile}
+            onChange={handleProfileChange}
+            disabled={isProcessing}
+            storageError={storedProfile.error}
+          />
 
           <button
+            type="button"
             onClick={handleProcessImages}
             disabled={isProcessing || (!images.length && !useSample)}
             style={{
@@ -198,60 +229,70 @@ function App() {
               'Analyze Images'
             )}
           </button>
-          {errorMessage && <p role="alert" style={{ color: '#b91c1c' }}>{errorMessage}</p>}
 
-          {/* Results Section */}
-          {siteAssessment && (
+          {errorMessage && (
+            <div role="alert" style={styles.errorBanner}>
+              {errorMessage}
+            </div>
+          )}
+
+          {siteAssessment && results && (
             <>
-              {/* KPI Dashboard */}
-              <div style={styles.kpiGrid}>
-                <KPICard title="Detections" value={siteAssessment.total_detections} color="#0066cc" />
-                <KPICard title="PPE detections" value={siteAssessment.total_ppe_items} color="#28a745" />
-                <KPICard title="People detected" value={siteAssessment.total_workers} color="#0066cc" />
-                <KPICard title="Potential findings" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).flatMap((worker) => worker.findings).filter((finding) => finding.status === 'POTENTIAL NON-COMPLIANCE').length, 0)} color="#b45309" />
-                <KPICard title="Workers for review" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).filter((worker) => worker.status === 'REVIEW REQUIRED').length, 0)} color="#64748b" />
-                <KPICard title="Not assessable" value={results.reduce((count, result) => count + (result.legal_assessment?.workers || []).filter((worker) => worker.status === 'NOT ASSESSABLE').length, 0)} color="#64748b" />
+              <div className="kpi-grid">
+                <KPICard title="Total detections" value={siteAssessment.total_detections} color="#0066cc" />
+                <KPICard title="PPE items" value={siteAssessment.total_ppe_items} color="#28a745" />
+                <KPICard title="Workers detected" value={siteAssessment.total_workers} color="#0066cc" />
+                <KPICard title="Potential PPE findings" value={potentialFindingsCount} color="#b45309" />
+                <KPICard title="Workers for review" value={reviewWorkersCount} color="#64748b" />
+                <KPICard title="Workers not assessable" value={notAssessableWorkersCount} color="#64748b" />
               </div>
 
-              {/* Tabs */}
               <div style={styles.tabsContainer}>
-                <div style={styles.tabsList}>
-                  {['🖼️ Visual Detection', '📊 5×5 Risk Matrix', '📋 Hazard Register', '📄 Report Generator', '⚖️ UK assessment'].map(
-                    (tab, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setActiveTab(idx)}
-                        style={{
-                          ...styles.tabButton,
-                          borderBottomColor: activeTab === idx ? '#0066cc' : 'transparent',
-                          color: activeTab === idx ? '#0066cc' : '#64748B',
-                          fontWeight: activeTab === idx ? '600' : '500',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  )}
+                <div className="tabs-list" role="tablist" aria-label="Inspection results views">
+                  {TABS.map((tab, idx) => (
+                    <button
+                      key={tab.id}
+                      id={`tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === idx}
+                      aria-controls={`panel-${tab.id}`}
+                      onClick={() => setActiveTab(idx)}
+                      style={{
+                        ...styles.tabButton,
+                        borderBottomColor: activeTab === idx ? '#0066cc' : 'transparent',
+                        color: activeTab === idx ? '#0066cc' : '#64748B',
+                        fontWeight: activeTab === idx ? '600' : '500',
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
-                {/* Tab Content */}
-                <div style={styles.tabContent}>
+                <div
+                  id={`panel-${TABS[activeTab].id}`}
+                  role="tabpanel"
+                  aria-labelledby={`tab-${TABS[activeTab].id}`}
+                  style={styles.tabContent}
+                >
                   {activeTab === 0 && <DetectionResults results={results} />}
-                  {activeTab === 1 && <p>Risk scoring is not available from object detections alone. Review images on site.</p>}
-                  {activeTab === 2 && (
+                  {activeTab === 1 && (
                     <>
                       <div style={styles.filterOptions}>
                         <label style={styles.radioLabel}>
                           <input
                             type="radio"
+                            name="hazard-filter"
                             checked={hazardFilterMode === 0}
                             onChange={() => setHazardFilterMode(0)}
                           />
-                          <span>Model no-PPE flags only</span>
+                          <span>Model no-PPE flags &amp; vehicle hazards</span>
                         </label>
                         <label style={styles.radioLabel}>
                           <input
                             type="radio"
+                            name="hazard-filter"
                             checked={hazardFilterMode === 1}
                             onChange={() => setHazardFilterMode(1)}
                           />
@@ -260,19 +301,24 @@ function App() {
                       </div>
                       <HazardRegister
                         assessment={siteAssessment}
+                        results={results}
                         showHazardsOnly={hazardFilterMode === 0}
                       />
                     </>
                   )}
-                  {activeTab === 3 && (
-                    <ReportGenerator assessment={siteAssessment} auditMetadata={config} />
+                  {activeTab === 2 && (
+                    <ReportGenerator
+                      assessment={siteAssessment}
+                      results={results}
+                      auditMetadata={config}
+                    />
                   )}
-                  {activeTab === 4 && <LegalAssessment results={results} />}
+                  {activeTab === 3 && <LegalAssessment results={results} />}
                 </div>
               </div>
             </>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );
@@ -288,7 +334,7 @@ const styles = {
   header: {
     backgroundColor: '#1E293B',
     color: '#fff',
-    padding: '30px',
+    padding: '24px 20px',
     textAlign: 'center',
   },
   headerContent: {
@@ -296,23 +342,15 @@ const styles = {
     margin: '0 auto',
   },
   mainTitle: {
-    fontSize: '28px',
+    fontSize: '26px',
     fontWeight: '700',
-    marginBottom: '5px',
+    marginBottom: '6px',
+    marginTop: 0,
   },
   subtitle: {
     fontSize: '14px',
     color: '#94A3B8',
     margin: 0,
-  },
-  mainLayout: {
-    display: 'flex',
-    maxWidth: '1400px',
-    margin: '0 auto',
-  },
-  mainContent: {
-    flex: 1,
-    padding: '20px',
   },
   processButton: {
     padding: '12px 24px',
@@ -323,7 +361,7 @@ const styles = {
     cursor: 'pointer',
     fontWeight: '500',
     fontSize: '14px',
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
     marginBottom: '20px',
@@ -331,11 +369,14 @@ const styles = {
   spinner: {
     animation: 'spin 1s linear infinite',
   },
-  kpiGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(6, 1fr)',
-    gap: '10px',
-    marginBottom: '20px',
+  errorBanner: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#991b1b',
+    padding: '12px 14px',
+    borderRadius: '6px',
+    marginBottom: '16px',
+    fontSize: '14px',
   },
   tabsContainer: {
     backgroundColor: '#fff',
@@ -343,25 +384,22 @@ const styles = {
     border: '1px solid #E2E8F0',
     overflow: 'hidden',
   },
-  tabsList: {
-    display: 'flex',
-    borderBottom: '2px solid #E2E8F0',
-  },
   tabButton: {
-    flex: 1,
+    flex: '1 1 160px',
     padding: '12px',
     backgroundColor: 'transparent',
     border: 'none',
     borderBottom: '3px solid transparent',
     cursor: 'pointer',
     textAlign: 'center',
-    transition: 'all 0.3s ease',
+    transition: 'all 0.2s ease',
   },
   tabContent: {
     padding: '20px',
   },
   filterOptions: {
     display: 'flex',
+    flexWrap: 'wrap',
     gap: '20px',
     marginBottom: '15px',
   },

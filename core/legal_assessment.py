@@ -1,5 +1,6 @@
 """Conservative, image-scoped PPE evidence assessment."""
 
+from core.label_mapping import normalize_detection_label
 from core.legal_references import relevant_references
 
 PPE_CLASSES = {
@@ -31,9 +32,9 @@ def _worker_overlap(item, person, zone):
 def assess_image(detections, context, class_names):
     """Assess one image against declared site requirements and model evidence."""
     context = context or {}
-    supported = {name.lower() for name in class_names}
+    supported = {normalize_detection_label(name) for name in class_names}
     requirements = list(dict.fromkeys(context.get("requirements", [])))
-    people = [d for d in detections if d["label"].lower() in {"person", "worker"}]
+    people = [d for d in detections if normalize_detection_label(d.get("label", "")) == "person"]
     workers = [
         {"id": f"Worker {index + 1}", "bbox": person["bbox"], "confidence": person["confidence"],
          "observations": [], "findings": []}
@@ -46,13 +47,14 @@ def assess_image(detections, context, class_names):
         for label in (positive, negative)
     }
     for detection in detections:
-        item = label_to_item.get(detection["label"].lower())
+        normalized_label = normalize_detection_label(detection.get("label", ""))
+        item = label_to_item.get(normalized_label)
         if not item:
             continue
         name, zone = item
         overlaps = [_worker_overlap(detection, person, zone) for person in people]
         candidates = [i for i, overlap in enumerate(overlaps) if overlap > 0]
-        observation = {**detection, "ppe_item": name, "source_type": "ai_observation"}
+        observation = {**detection, "ppe_item": name, "normalized_label": normalized_label, "source_type": "ai_observation"}
         if len(candidates) == 1 and overlaps[candidates[0]] >= 0.75:
             workers[candidates[0]]["observations"].append(observation)
         else:
@@ -68,12 +70,12 @@ def assess_image(detections, context, class_names):
                 status = "NOT ASSESSABLE"
                 reasoning = "The loaded model cannot detect this PPE category."
             elif worker["confidence"] >= MIN_FLAG_CONFIDENCE and any(
-                o["label"].lower() == classes[1] and o["confidence"] >= MIN_FLAG_CONFIDENCE
+                o["normalized_label"] == classes[1] and o["confidence"] >= MIN_FLAG_CONFIDENCE
                 for o in observations
             ) and not any(
-                o["label"].lower() == classes[0] for o in observations
+                o["normalized_label"] == classes[0] for o in observations
             ) and not any(
-                o["label"].lower() == classes[0] and _worker_overlap(o, person, classes[2]) > 0
+                o["normalized_label"] == classes[0] and _worker_overlap(o, person, classes[2]) > 0
                 for o in unassigned
             ):
                 status = "POTENTIAL NON-COMPLIANCE"

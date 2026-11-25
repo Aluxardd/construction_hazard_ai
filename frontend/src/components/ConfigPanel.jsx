@@ -1,23 +1,35 @@
 import React from 'react';
 
-export const ConfigPanel = ({ config, onConfigChange, isProcessing }) => {
+export const ConfigPanel = ({
+  config,
+  onConfigChange,
+  isProcessing,
+  configStatus = 'ready',
+  configError = '',
+}) => {
   const handleChange = (key, value) => {
     onConfigChange({ ...config, [key]: value });
   };
 
   return (
-    <div style={styles.sidebar}>
+    <aside className="app-sidebar" aria-label="System Configuration">
       <h2 style={styles.header}>⚙️ System Configuration</h2>
 
       <div style={styles.section}>
         <h3 style={styles.subheader}>Model Status</h3>
-        {config.is_custom_model ? (
+        {configStatus === 'loading' ? (
+          <div style={styles.info}>Checking backend model status...</div>
+        ) : configStatus === 'error' ? (
+          <div style={styles.warning}>
+            Backend unreachable. {configError || 'Start FastAPI on port 8000.'}
+          </div>
+        ) : config.is_custom_model ? (
           <div style={styles.success}>
-            ✅ Active Trained Model: <code>{config.model_name}</code>
+            ✅ Active Trained Model: <code>{config.model_name || 'best.pt'}</code>
           </div>
         ) : (
-          <div style={styles.info}>
-            Model unavailable. {config.detector_status || 'Check the backend connection.'}
+          <div style={styles.warning}>
+            Model unavailable. {config.detector_status || 'Check the backend logs and model weights.'}
           </div>
         )}
         {config.class_names?.length > 0 && (
@@ -116,24 +128,17 @@ export const ConfigPanel = ({ config, onConfigChange, isProcessing }) => {
           />
         </label>
       </div>
-    </div>
+    </aside>
   );
 };
 
 const styles = {
-  sidebar: {
-    width: '280px',
-    padding: '20px',
-    backgroundColor: '#F8FAFC',
-    borderRight: '1px solid #E2E8F0',
-    minHeight: '100vh',
-    overflowY: 'auto',
-  },
   header: {
     fontSize: '18px',
     fontWeight: '600',
     color: '#1E293B',
     marginBottom: '20px',
+    marginTop: 0,
   },
   section: {
     marginBottom: '20px',
@@ -155,6 +160,14 @@ const styles = {
     padding: '8px 12px',
     backgroundColor: '#d1ecf1',
     color: '#0c5460',
+    borderRadius: '4px',
+    fontSize: '12px',
+  },
+  warning: {
+    padding: '8px 12px',
+    backgroundColor: '#fef2f2',
+    color: '#991b1b',
+    border: '1px solid #fecaca',
     borderRadius: '4px',
     fontSize: '12px',
   },

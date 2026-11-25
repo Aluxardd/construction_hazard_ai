@@ -4,11 +4,12 @@ Supports trained YOLOv8 models (.pt weights) via Ultralytics.
 Focuses exclusively on detecting the presence or absence of safety equipment.
 """
 
-import os
 from pathlib import Path
-from typing import List, Dict, Any, Union, Tuple
+from typing import List, Dict, Any, Union
 from PIL import Image
 import numpy as np
+
+from core.label_mapping import classify_detection_type
 
 # Try importing Ultralytics YOLO
 try:
@@ -99,12 +100,5 @@ class PPEDetector:
         return detections
 
     def _classify_ppe_type(self, label: str) -> str:
-        """Classify detection as PPE item or worker."""
-        worker_labels = ["person", "worker"]
-        if any(worker in label.lower() for worker in worker_labels):
-            return "worker"
-        if label.lower().startswith("no_"):
-            return "missing_ppe"
-        if label.lower() in {"helmet", "gloves", "vest", "boots", "goggles"}:
-            return "ppe_item"
-        return "object"
+        """Classify detection as PPE item, missing PPE flag, worker, or vehicle hazard."""
+        return classify_detection_type(label)

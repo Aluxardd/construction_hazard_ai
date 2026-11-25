@@ -1,18 +1,13 @@
 """
 PPE Compliance Assessment Engine.
-Translates detected computer vision objects into PPE compliance scores
-and actionable safety recommendations aligned with OSHA/HSE standards.
+Normalizes detected computer vision objects and prepares structured summaries
+for human review without asserting automated compliance.
 """
 
 from typing import Dict, List, Any
-import numpy as np
-from config import (
-    PPE_KNOWLEDGE_BASE,
-    PPE_ITEMS,
-    calculate_ppe_compliance,
-    get_compliance_status,
-    DEFAULT_HAZARD_PROFILE
-)
+from config import PPE_KNOWLEDGE_BASE, calculate_ppe_compliance
+from core.label_mapping import normalize_detection_label
+
 
 class RiskAssessmentEngine:
     def __init__(self, custom_rules: Dict[str, Any] = None):
@@ -21,45 +16,19 @@ class RiskAssessmentEngine:
             self.rules.update(custom_rules)
 
     def normalize_label(self, raw_label: str) -> str:
-        """
-        Normalize detected label string into standard PPE keys.
-        Supports PPE classes: ['helmet', 'gloves', 'vest', 'boots', 'goggles', 'person']
-        """
-        clean = raw_label.lower().replace("-", "_").replace(" ", "_").strip()
-        if clean.startswith("no_"):
-            return clean
-
-        # PPE items - all positive detections
-        ppe_keys = ["helmet", "hard_hat", "gloves", "glove", "vest", "hi_vis", "boots", "boot", "goggles", "goggle", "person", "worker"]
-        if any(key in clean for key in ppe_keys):
-            if "helmet" in clean or "hard_hat" in clean:
-                return "helmet"
-            elif "vest" in clean or "hi_vis" in clean:
-                return "vest"
-            elif "boot" in clean:
-                return "boots"
-            elif "glove" in clean:
-                return "gloves"
-            elif "goggle" in clean:
-                return "goggles"
-            elif "person" in clean or "worker" in clean:
-                return "person"
-
-        return "unknown"
+        """Normalize detected label string into canonical project keys."""
+        return normalize_detection_label(raw_label)
 
     def evaluate_ppe_item(self, detection: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Evaluates a single detected PPE item and enriches with compliance metadata.
-        """
+        """Evaluate a single detected object and enrich it with review metadata."""
         raw_label = detection.get("label", "unknown")
         confidence = float(detection.get("confidence", 0.0))
         bbox = detection.get("bbox", [])
 
         norm_key = self.normalize_label(raw_label)
-        
-        # Check if this is a known PPE item
-        if norm_key in PPE_KNOWLEDGE_BASE:
-            rule = PPE_KNOWLEDGE_BASE[norm_key]
+
+        if norm_key in self.rules:
+            rule = self.rules[norm_key]
             return {
                 "raw_label": raw_label,
                 "normalized_key": norm_key,
@@ -73,10 +42,10 @@ class RiskAssessmentEngine:
                 "compliance_weight": None,
                 "is_required": None,
                 "recommendation": "Verify suitability and requirements against the applicable risk assessment.",
-                "color": "#28a745",  # Green for detected PPE
-                "text_color": "#ffffff"
+                "color": "#28a745",
+                "text_color": "#ffffff",
             }
-        elif norm_key == "person":
+        if norm_key == "person":
             return {
                 "raw_label": raw_label,
                 "normalized_key": "person",
@@ -86,10 +55,23 @@ class RiskAssessmentEngine:
                 "title": "Site Personnel / Worker Observed",
                 "category": "Worker Detection",
                 "is_required": False,
-                "color": "#0066cc",  # Blue for worker
-                "text_color": "#ffffff"
+                "color": "#0066cc",
+                "text_color": "#ffffff",
             }
-        elif norm_key.startswith("no_"):
+        if norm_key == "forklift":
+            return {
+                "raw_label": raw_label,
+                "normalized_key": "forklift",
+                "is_ppe_item": False,
+                "confidence": confidence,
+                "bbox": bbox,
+                "title": "Mobile Plant / Forklift Observed",
+                "category": "Vehicle / Struck-By Hazard",
+                "recommendation": "Verify pedestrian segregation, traffic routes, and visibility controls around mobile plant.",
+                "color": "#f59e0b",
+                "text_color": "#1e293b",
+            }
+        if norm_key.startswith("no_"):
             return {
                 "raw_label": raw_label,
                 "normalized_key": norm_key,
@@ -99,26 +81,22 @@ class RiskAssessmentEngine:
                 "title": raw_label,
                 "category": "Model flag - review required",
                 "color": "#dc3545",
-                "text_color": "#ffffff"
+                "text_color": "#ffffff",
             }
-        else:
-            return {
-                "raw_label": raw_label,
-                "normalized_key": "unknown",
-                "is_ppe_item": False,
-                "confidence": confidence,
-                "bbox": bbox,
-                "title": f"Unclassified Detection: {raw_label}",
-                "category": "Unknown",
-                "color": "#808080",  # Gray for unknown
-                "text_color": "#ffffff"
-            }
+        return {
+            "raw_label": raw_label,
+            "normalized_key": "unknown",
+            "is_ppe_item": False,
+            "confidence": confidence,
+            "bbox": bbox,
+            "title": f"Unclassified Detection: {raw_label}",
+            "category": "Unknown",
+            "color": "#808080",
+            "text_color": "#ffffff",
+        }
 
     def assess_batch(self, detections: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Assess a batch of PPE detections from one or more images.
-        Computes compliance rate, identified gaps, and aggregate safety metrics.
-        """
+        """Aggregate evaluated detections from one or more images."""
         evaluated_all = []
         ppe_items = []
         workers = []
@@ -132,21 +110,13 @@ class RiskAssessmentEngine:
             elif eval_result.get("normalized_key") == "person":
                 workers.append(eval_result)
 
-        # Calculate PPE compliance from detections
         compliance = calculate_ppe_compliance(detections)
-
-        # Determine overall site compliance status
         compliance_status = compliance["status"]
 
-        # Aggregate statistics
-        total_detections = len(evaluated_all)
-        total_ppe = len(ppe_items)
-        total_workers = len(workers)
-
         return {
-            "total_detections": total_detections,
-            "total_ppe_items": total_ppe,
-            "total_workers": total_workers,
+            "total_detections": len(evaluated_all),
+            "total_ppe_items": len(ppe_items),
+            "total_workers": len(workers),
             "compliance_rate": compliance["compliance_rate"],
             "detected_items": compliance["detected_items"],
             "missing_items": compliance["missing_items"],
@@ -156,6 +126,4 @@ class RiskAssessmentEngine:
             "workers": workers,
             "summary_statement": compliance_status["message"],
             "overall_color": compliance_status["color"],
-            "total_hazards": None,
-            "compliant_count": None
         }
